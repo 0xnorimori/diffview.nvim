@@ -460,7 +460,9 @@ DiffView.update_files = debounce.debounce_trailing(
     end
 
     FileEntry.update_index_stat(self.adapter, index_stat)
+    local fold_state = self.panel:save_fold_state()
     self.files:update_file_trees()
+    self.panel:restore_fold_state(fold_state)
     self.panel:update_components()
     self.panel:render()
     self.panel:redraw()

@@ -396,6 +396,57 @@ function FilePanel:toggle_item_fold(item)
   self:set_item_fold(item, item.collapsed)
 end
 
+function FilePanel:save_fold_state()
+  local state = {}
+  if self.components and self.components.comp then
+    self.components.comp:deep_some(function(comp)
+      local ctx = comp.context
+      if ctx and type(ctx.collapsed) == "boolean" and ctx.path then
+        state[ctx.path] = ctx.collapsed
+      end
+    end)
+  end
+  return state
+end
+
+function FilePanel:restore_fold_state(state)
+  local collapsed_paths = {}
+  for path, collapsed in pairs(state) do
+    if collapsed then
+      collapsed_paths[path] = true
+    end
+  end
+
+  local function traverse_tree(tree)
+    local function recurse(node)
+      if node:has_children() then
+        local dir_data = node.data
+        if dir_data and dir_data.path then
+          for collapsed_path in pairs(collapsed_paths) do
+            if collapsed_path:sub(1, #dir_data.path) == dir_data.path then
+              local next_char = collapsed_path:sub(#dir_data.path + 1, #dir_data.path + 1)
+              if next_char == "" or next_char == "/" then
+                dir_data.collapsed = true
+                break
+              end
+            end
+          end
+        end
+        for _, child in ipairs(node.children) do
+          recurse(child)
+        end
+      end
+    end
+    for _, node in ipairs(tree.root.children) do
+      recurse(node)
+    end
+  end
+
+  traverse_tree(self.files.conflicting_tree)
+  traverse_tree(self.files.working_tree)
+  traverse_tree(self.files.staged_tree)
+end
+
 function FilePanel:render()
   require("diffview.scene.views.diff.render")(self)
 end

@@ -410,27 +410,12 @@ function FilePanel:save_fold_state()
 end
 
 function FilePanel:restore_fold_state(state)
-  local collapsed_paths = {}
-  for path, collapsed in pairs(state) do
-    if collapsed then
-      collapsed_paths[path] = true
-    end
-  end
-
   local function traverse_tree(tree)
     local function recurse(node)
       if node:has_children() then
         local dir_data = node.data
-        if dir_data and dir_data.path then
-          for collapsed_path in pairs(collapsed_paths) do
-            if collapsed_path:sub(1, #dir_data.path) == dir_data.path then
-              local next_char = collapsed_path:sub(#dir_data.path + 1, #dir_data.path + 1)
-              if next_char == "" or next_char == "/" then
-                dir_data.collapsed = true
-                break
-              end
-            end
-          end
+        if dir_data and dir_data.path and state[dir_data.path] ~= nil then
+          dir_data.collapsed = state[dir_data.path]
         end
         for _, child in ipairs(node.children) do
           recurse(child)

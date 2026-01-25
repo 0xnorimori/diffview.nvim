@@ -396,6 +396,56 @@ function FilePanel:toggle_item_fold(item)
   self:set_item_fold(item, item.collapsed)
 end
 
+function FilePanel:save_fold_state()
+  local state = {}
+  if self.components and self.components.comp then
+    self.components.comp:deep_some(function(comp)
+      local ctx = comp.context
+      if ctx and type(ctx.collapsed) == "boolean" and ctx.path then
+        state[ctx.path] = ctx.collapsed
+      end
+    end)
+  end
+  return state
+end
+
+function FilePanel:restore_fold_state(state)
+  local function traverse_tree(tree)
+    local function recurse(node)
+      if node:has_children() then
+        local dir_data = node.data
+        if dir_data and dir_data.path and state[dir_data.path] ~= nil then
+          dir_data.collapsed = state[dir_data.path]
+        end
+        for _, child in ipairs(node.children) do
+          recurse(child)
+        end
+      end
+    end
+    for _, node in ipairs(tree.root.children) do
+      recurse(node)
+    end
+  end
+
+  traverse_tree(self.files.conflicting_tree)
+  traverse_tree(self.files.working_tree)
+  traverse_tree(self.files.staged_tree)
+end
+
+function FilePanel:save_cursor_position()
+  if self:is_open() and self.winid and api.nvim_win_is_valid(self.winid) then
+    return api.nvim_win_get_cursor(self.winid)
+  end
+end
+
+function FilePanel:restore_cursor_position(pos)
+  if pos and self:is_open() and self.winid and api.nvim_win_is_valid(self.winid) then
+    local line_count = api.nvim_buf_line_count(self.bufid)
+    local line = math.min(pos[1], line_count)
+    pcall(api.nvim_win_set_cursor, self.winid, { line, pos[2] })
+  end
+end
+
 function FilePanel:render()
   require("diffview.scene.views.diff.render")(self)
 end

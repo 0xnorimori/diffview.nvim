@@ -15,15 +15,30 @@ return function(view)
   return {
     tab_enter = function()
       local file = view.panel.cur_file
+      local saved_cursor = view._saved_panel_cursor
+
       if file then
-        view:set_file(file, false, true)
+        view:set_file(file, false, false)
+      end
+
+      if saved_cursor then
+        view.panel:restore_cursor_position(saved_cursor)
       end
 
       if view.ready then
-        view:update_files()
+        view:update_files(function()
+          if saved_cursor then
+            view.panel:restore_cursor_position(saved_cursor)
+          end
+          view._saved_panel_cursor = nil
+        end)
+      else
+        view._saved_panel_cursor = nil
       end
     end,
     tab_leave = function()
+      view._saved_panel_cursor = view.panel:save_cursor_position()
+
       local file = view.panel.cur_file
 
       if file then

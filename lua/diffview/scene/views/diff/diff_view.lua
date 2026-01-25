@@ -461,6 +461,7 @@ DiffView.update_files = debounce.debounce_trailing(
 
     FileEntry.update_index_stat(self.adapter, index_stat)
     local fold_state = self.panel:save_fold_state()
+    local cursor_pos = self.panel:save_cursor_position()
     self.files:update_file_trees()
     self.panel:restore_fold_state(fold_state)
     self.panel:update_components()
@@ -468,6 +469,7 @@ DiffView.update_files = debounce.debounce_trailing(
     self.panel:redraw()
     perf:lap("panel redrawn")
     self.panel:reconstrain_cursor()
+    self.panel:restore_cursor_position(cursor_pos)
 
     if utils.vec_indexof(self.panel:ordered_file_list(), self.panel.cur_file) == -1 then
       self.panel:set_cur_file(nil)

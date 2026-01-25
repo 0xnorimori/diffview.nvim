@@ -447,6 +447,20 @@ function FilePanel:restore_fold_state(state)
   traverse_tree(self.files.staged_tree)
 end
 
+function FilePanel:save_cursor_position()
+  if self:is_open() and self.winid and api.nvim_win_is_valid(self.winid) then
+    return api.nvim_win_get_cursor(self.winid)
+  end
+end
+
+function FilePanel:restore_cursor_position(pos)
+  if pos and self:is_open() and self.winid and api.nvim_win_is_valid(self.winid) then
+    local line_count = api.nvim_buf_line_count(self.bufid)
+    local line = math.min(pos[1], line_count)
+    pcall(api.nvim_win_set_cursor, self.winid, { line, pos[2] })
+  end
+end
+
 function FilePanel:render()
   require("diffview.scene.views.diff.render")(self)
 end

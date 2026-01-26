@@ -344,5 +344,29 @@ return function(view)
       local dir = view.panel:get_dir_at_cursor()
       if dir then view.panel:toggle_item_fold(dir) end
     end,
+    toggle_reviewed_entry = function()
+      local item = view:infer_cur_file(true)
+      if not item then return end
+
+      if type(item.collapsed) == "boolean" then
+        local node = item._node
+        if node then
+          local new_state = nil
+          node:deep_some(function(child)
+            if not child:has_children() and child.data and child.data.reviewed ~= nil then
+              if new_state == nil then
+                new_state = not child.data.reviewed
+              end
+              child.data.reviewed = new_state
+            end
+          end)
+        end
+      else
+        item.reviewed = not item.reviewed
+      end
+
+      view.panel:render()
+      view.panel:redraw()
+    end,
   }
 end

@@ -410,26 +410,16 @@ function FilePanel:save_fold_state()
 end
 
 function FilePanel:restore_fold_state(state)
-  local function traverse_tree(tree)
-    local function recurse(node)
-      if node:has_children() then
-        local dir_data = node.data
-        if dir_data and dir_data.path and state[dir_data.path] ~= nil then
-          dir_data.collapsed = state[dir_data.path]
-        end
-        for _, child in ipairs(node.children) do
-          recurse(child)
+  if self.components and self.components.comp then
+    self.components.comp:deep_some(function(comp)
+      local ctx = comp.context
+      if ctx and type(ctx.collapsed) == "boolean" and ctx.path then
+        if state[ctx.path] ~= nil then
+          ctx.collapsed = state[ctx.path]
         end
       end
-    end
-    for _, node in ipairs(tree.root.children) do
-      recurse(node)
-    end
+    end)
   end
-
-  traverse_tree(self.files.conflicting_tree)
-  traverse_tree(self.files.working_tree)
-  traverse_tree(self.files.staged_tree)
 end
 
 function FilePanel:save_cursor_position()

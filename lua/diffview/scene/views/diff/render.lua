@@ -4,6 +4,27 @@ local utils = require("diffview.utils")
 
 local pl = utils.path
 
+local function count_reviewed_in_dir(items_comp)
+  local reviewed = 0
+  local total = 0
+  for _, c in ipairs(items_comp.components) do
+    if c.name == "file" then
+      total = total + 1
+      if c.context.reviewed then
+        reviewed = reviewed + 1
+      end
+    elseif c.name == "directory" then
+      local sub_items = c.components[2]
+      if sub_items then
+        local sub_reviewed, sub_total = count_reviewed_in_dir(sub_items)
+        reviewed = reviewed + sub_reviewed
+        total = total + sub_total
+      end
+    end
+  end
+  return reviewed, total
+end
+
 ---@param comp  RenderComponent
 ---@param show_path boolean
 ---@param depth integer|nil
@@ -11,6 +32,11 @@ local function render_file(comp, show_path, depth)
   ---@type FileEntry
   local file = comp.context
 
+  if file.reviewed then
+    comp:add_text("✓", "DiffviewFilePanelReviewed")
+  else
+    comp:add_text(" ")
+  end
   comp:add_text(file.status .. " ", hl.get_git_hl(file.status))
 
   if depth then
@@ -105,6 +131,11 @@ local function render_file_tree_recurse(depth, comp)
   end
 
   dir:add_text(ctx.name, "DiffviewFolderName")
+
+  local reviewed, total = count_reviewed_in_dir(items)
+  if reviewed > 0 then
+    dir:add_text(string.format(" (%d/%d)", reviewed, total), "DiffviewFilePanelReviewed")
+  end
   dir:ln()
 
   if not ctx.collapsed then

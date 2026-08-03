@@ -33,4 +33,25 @@ assert(#marks == 1, "expected 1 extmark, got " .. #marks)
 local out = vim.system({ root .. "/bin/nrev", "list", "--json", "--status", "open" }, { cwd = tmp, text = true }):wait()
 assert(out.stdout and out.stdout:find("smoke comment", 1, true), "db row missing: " .. (out.stdout or ""))
 
+nrev.export()
+local exported = vim.wait(5000, function()
+  return vim.fn.getreg("+"):find("[ISSUE]", 1, true) ~= nil
+end, 50)
+assert(exported, "export register missing open comment: " .. vim.fn.getreg("+"))
+
+vim.api.nvim_win_set_cursor(0, { 2, 0 })
+nrev.toggle_resolve()
+local resolved = vim.wait(5000, function()
+  local rows = vim.b.nrev_comments
+  return rows ~= nil and #rows == 1 and rows[1].status == "resolved"
+end, 50)
+assert(resolved, "comment was not resolved")
+
+nrev.delete()
+local deleted = vim.wait(5000, function()
+  local rows = vim.b.nrev_comments
+  return rows ~= nil and #rows == 0
+end, 50)
+assert(deleted, "comment was not deleted")
+
 print("OK")

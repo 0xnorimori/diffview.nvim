@@ -253,6 +253,90 @@ function M.prev()
   jump(-1)
 end
 
+local function comment_at_cursor()
+  local cur = vim.fn.line(".")
+  for _, r in ipairs(vim.b.nrev_comments or {}) do
+    if r.row <= cur and cur <= r.row_end then
+      return r
+    end
+  end
+  vim.notify("nrev: no comment under cursor", vim.log.levels.INFO)
+end
+
+function M.toggle_resolve()
+  local r = comment_at_cursor()
+  if not r then
+    return
+  end
+  local bufnr = vim.api.nvim_get_current_buf()
+  local info = buf_info(bufnr)
+  local cwd = info and info.cwd or vim.uv.cwd()
+  local cmd = r.status == "resolved" and { "reopen", tostring(r.id) } or { "resolve", tostring(r.id) }
+  M.run(cmd, cwd, function()
+    M.refresh(bufnr)
+  end)
+end
+
+function M.delete()
+  local r = comment_at_cursor()
+  if not r then
+    return
+  end
+  local bufnr = vim.api.nvim_get_current_buf()
+  local info = buf_info(bufnr)
+  local cwd = info and info.cwd or vim.uv.cwd()
+  M.run({ "delete", tostring(r.id) }, cwd, function()
+    M.refresh(bufnr)
+  end)
+end
+
+function M.export()
+  local info = buf_info(vim.api.nvim_get_current_buf())
+  local cwd = info and info.cwd or vim.uv.cwd()
+  M.run({ "list", "--md", "--status", "open" }, cwd, function(out)
+    if out.code ~= 0 then
+      return
+    end
+    vim.fn.setreg("+", out.stdout or "")
+    vim.notify("nrev: open comments copied to clipboard")
+  end)
+end
+
+function M.pick()
+  local ok, fzf = pcall(require, "fzf-lua")
+  if not ok then
+    vim.notify("nrev: fzf-lua not available", vim.log.levels.WARN)
+    return
+  end
+  local info = buf_info(vim.api.nvim_get_current_buf())
+  local cwd = info and info.cwd or vim.uv.cwd()
+  M.run({ "list", "--json", "--status", "all" }, cwd, function(out)
+    if out.code ~= 0 then
+      return
+    end
+    local okj, comments = pcall(vim.json.decode, out.stdout)
+    if not okj then
+      return
+    end
+    local entries = {}
+    for _, c in ipairs(comments) do
+      table.insert(entries, ("%s:%d [%s/%s] %s"):format(c.file, c.line_start, c.type, c.status, c.text))
+    end
+    fzf.fzf_exec(entries, {
+      prompt = "review> ",
+      actions = {
+        ["default"] = function(selected)
+          local file, line = selected[1]:match("^(.-):(%d+)")
+          if file then
+            vim.cmd("edit " .. vim.fn.fnameescape(cwd .. "/" .. file))
+            vim.api.nvim_win_set_cursor(0, { tonumber(line), 0 })
+          end
+        end,
+      },
+    })
+  end)
+end
+
 function M.setup(opts)
   config = vim.tbl_extend("force", config, opts or {})
   local group = vim.api.nvim_create_augroup("nrev", { clear = true })
@@ -268,6 +352,10 @@ function M.setup(opts)
   vim.keymap.set({ "n", "v" }, "<leader>rc", M.add, { desc = "Review: add comment" })
   vim.keymap.set("n", "]a", M.next, { desc = "Next review comment" })
   vim.keymap.set("n", "[a", M.prev, { desc = "Prev review comment" })
+  vim.keymap.set("n", "<leader>rl", M.pick, { desc = "Review: list comments" })
+  vim.keymap.set("n", "<leader>rx", M.toggle_resolve, { desc = "Review: resolve/reopen" })
+  vim.keymap.set("n", "<leader>rd", M.delete, { desc = "Review: delete comment" })
+  vim.keymap.set("n", "<leader>re", M.export, { desc = "Review: export to clipboard" })
   vim.schedule(function()
     M.refresh()
   end)

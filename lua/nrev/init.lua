@@ -144,7 +144,7 @@ local function render(bufnr, comments)
       table.insert(virt, { { "  ↳ " .. c.resolution, "Comment" } })
     end
     local mark = vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, {
-      sign_text = c.status == "resolved" and "✓" or (icons[c.type] or "●"),
+      sign_text = c.status == "resolved" and "✓" or "✎",
       sign_hl_group = c.status == "resolved" and "Comment" or (hls[c.type] or "DiagnosticInfo"),
       virt_lines = virt,
     })

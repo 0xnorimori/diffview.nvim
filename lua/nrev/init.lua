@@ -1,0 +1,246 @@
+local M = {}
+
+local ns = vim.api.nvim_create_namespace("nrev")
+local types = { "issue", "suggestion", "question", "note", "praise" }
+local icons = { issue = "●", suggestion = "◆", question = "?", note = "·", praise = "+" }
+local hls = {
+  issue = "DiagnosticError",
+  suggestion = "DiagnosticInfo",
+  question = "DiagnosticWarn",
+  note = "DiagnosticHint",
+  praise = "DiagnosticOk",
+}
+
+local config = { bin = nil }
+local warned = false
+
+local function default_bin()
+  local src = debug.getinfo(1, "S").source:sub(2)
+  local root = vim.fs.dirname(vim.fs.dirname(vim.fs.dirname(src)))
+  return root .. "/bin/nrev"
+end
+
+local function bin()
+  local b = config.bin or default_bin()
+  if vim.fn.executable(b) == 1 then
+    return b
+  end
+  if vim.fn.executable("nrev") == 1 then
+    return "nrev"
+  end
+  if not warned then
+    warned = true
+    vim.notify("nrev binary not found — run :Lazy build diffview.nvim", vim.log.levels.WARN)
+  end
+  return nil
+end
+
+local queue = {}
+local running = false
+
+local function process_queue()
+  if running or #queue == 0 then
+    return
+  end
+  running = true
+  local item = table.remove(queue, 1)
+  vim.system(item.cmd, { cwd = item.cwd, text = true }, function(out)
+    running = false
+    vim.schedule(function()
+      if item.cb then
+        item.cb(out)
+      end
+      process_queue()
+    end)
+  end)
+end
+
+function M.run(args, cwd, cb)
+  local b = bin()
+  if not b then
+    return
+  end
+  local cmd = { b }
+  vim.list_extend(cmd, args)
+  table.insert(queue, { cmd = cmd, cwd = cwd, cb = cb })
+  process_queue()
+end
+
+local function buf_info(bufnr)
+  local name = vim.api.nvim_buf_get_name(bufnr)
+  if name == "" then
+    return nil
+  end
+  local gitdir, rev, rel = name:match("^diffview://(.-/%.git)/([^/]+)/(.+)$")
+  if gitdir then
+    return { file = rel, cwd = vim.fs.dirname(gitdir), side = "old", rev = rev }
+  end
+  if name:match("^%w+://") then
+    return nil
+  end
+  return { file = name, cwd = vim.fs.dirname(name), side = "new", rev = "WORKING" }
+end
+
+local function render(bufnr, comments)
+  vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+  local count = vim.api.nvim_buf_line_count(bufnr)
+  local rows = {}
+  for _, c in ipairs(comments) do
+    local row = math.min(c.line_start, count) - 1
+    local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
+    local drifted = c.status == "open" and line ~= c.line_text
+    local head
+    if c.status == "resolved" then
+      head = { { ("✓ %s resolved"):format(c.type), "Comment" } }
+    else
+      local hl = hls[c.type] or "DiagnosticInfo"
+      head = { { ("%s %s%s"):format(icons[c.type] or "●", c.type, drifted and " ⚠" or ""), hl } }
+    end
+    local virt = { head, { { "  " .. c.text, "Normal" } } }
+    if c.resolution and c.resolution ~= vim.NIL then
+      table.insert(virt, { { "  ↳ " .. c.resolution, "Comment" } })
+    end
+    vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, {
+      sign_text = c.status == "resolved" and "✓" or (icons[c.type] or "●"),
+      sign_hl_group = c.status == "resolved" and "Comment" or (hls[c.type] or "DiagnosticInfo"),
+      virt_lines = virt,
+    })
+    table.insert(rows, {
+      row = row + 1,
+      row_end = math.min(c.line_end, count),
+      id = c.id,
+      status = c.status,
+    })
+  end
+  vim.b[bufnr].nrev_comments = rows
+end
+
+function M.refresh(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local info = buf_info(bufnr)
+  if not info then
+    return
+  end
+  M.run({ "list", "--json", "--status", "all", "--file", info.file }, info.cwd, function(out)
+    if out.code ~= 0 or not out.stdout or out.stdout == "" then
+      return
+    end
+    local ok, comments = pcall(vim.json.decode, out.stdout)
+    if not ok or not vim.api.nvim_buf_is_valid(bufnr) then
+      return
+    end
+    local visible = {}
+    for _, c in ipairs(comments) do
+      if (info.side == "new" and c.side == "new") or (info.side == "old" and c.side == "old" and c.rev == info.rev) then
+        table.insert(visible, c)
+      end
+    end
+    render(bufnr, visible)
+  end)
+end
+
+function M.add()
+  local bufnr = vim.api.nvim_get_current_buf()
+  local info = buf_info(bufnr)
+  if not info then
+    return
+  end
+  local s, e = vim.fn.line("."), vim.fn.line(".")
+  local mode = vim.fn.mode()
+  if mode == "v" or mode == "V" or mode == "\22" then
+    s, e = vim.fn.line("v"), vim.fn.line(".")
+    if s > e then
+      s, e = e, s
+    end
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
+  end
+  vim.ui.select(types, { prompt = "Comment type" }, function(typ)
+    if not typ then
+      return
+    end
+    vim.ui.input({ prompt = typ .. ": " }, function(text)
+      if not text or text == "" then
+        return
+      end
+      local line_text = vim.api.nvim_buf_get_lines(bufnr, s - 1, s, false)[1] or ""
+      M.run({
+        "add",
+        "--file", info.file,
+        "--line-start", tostring(s),
+        "--line-end", tostring(e),
+        "--side", info.side,
+        "--rev", info.rev,
+        "--line-text", line_text,
+        "--type", typ,
+        "--text", text,
+      }, info.cwd, function(out)
+        if out.code ~= 0 then
+          vim.notify("nrev add failed: " .. (out.stderr or ""), vim.log.levels.ERROR)
+          return
+        end
+        M.refresh(bufnr)
+      end)
+    end)
+  end)
+end
+
+local function jump(dir)
+  local rows = vim.b.nrev_comments or {}
+  if #rows == 0 then
+    return
+  end
+  local cur = vim.fn.line(".")
+  local sorted = vim.deepcopy(rows)
+  table.sort(sorted, function(a, b)
+    return a.row < b.row
+  end)
+  local target
+  if dir > 0 then
+    for _, r in ipairs(sorted) do
+      if r.row > cur then
+        target = r
+        break
+      end
+    end
+    target = target or sorted[1]
+  else
+    for i = #sorted, 1, -1 do
+      if sorted[i].row < cur then
+        target = sorted[i]
+        break
+      end
+    end
+    target = target or sorted[#sorted]
+  end
+  vim.api.nvim_win_set_cursor(0, { target.row, 0 })
+end
+
+function M.next()
+  jump(1)
+end
+
+function M.prev()
+  jump(-1)
+end
+
+function M.setup(opts)
+  config = vim.tbl_extend("force", config, opts or {})
+  local group = vim.api.nvim_create_augroup("nrev", { clear = true })
+  vim.api.nvim_create_autocmd({ "BufReadPost", "FocusGained" }, {
+    group = group,
+    callback = function(ev)
+      M.refresh(ev.event == "FocusGained" and vim.api.nvim_get_current_buf() or ev.buf)
+    end,
+  })
+  vim.api.nvim_create_user_command("NrevRefresh", function()
+    M.refresh()
+  end, {})
+  vim.keymap.set({ "n", "v" }, "<leader>rc", M.add, { desc = "Review: add comment" })
+  vim.keymap.set("n", "]a", M.next, { desc = "Next review comment" })
+  vim.keymap.set("n", "[a", M.prev, { desc = "Prev review comment" })
+  vim.schedule(function()
+    M.refresh()
+  end)
+end
+
+return M

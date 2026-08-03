@@ -408,6 +408,8 @@ return function(view)
         item.reviewed = not item.reviewed
       end
 
+      vim.api.nvim_exec_autocmds("User", { pattern = "DiffviewReviewedToggled" })
+
       view.panel:render()
       view.panel:redraw()
     end,

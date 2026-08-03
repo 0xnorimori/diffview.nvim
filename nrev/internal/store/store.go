@@ -92,8 +92,13 @@ func (s *Store) migrate() error {
 	if v >= schemaVersion {
 		return nil
 	}
-	_, err := s.db.Exec(`
-CREATE TABLE comments (
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`
+CREATE TABLE IF NOT EXISTS comments (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   file        TEXT NOT NULL,
   side        TEXT NOT NULL DEFAULT 'new' CHECK (side IN ('old','new')),
@@ -108,19 +113,21 @@ CREATE TABLE comments (
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
-CREATE TABLE reviewed (
+CREATE TABLE IF NOT EXISTS reviewed (
   rev_range   TEXT NOT NULL,
   file        TEXT NOT NULL,
   reviewed_at TEXT NOT NULL,
   PRIMARY KEY (rev_range, file)
 );
-CREATE TABLE meta (
+CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
 PRAGMA user_version = 1;
-`)
-	return err
+`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) Add(p AddParams) (int64, error) {

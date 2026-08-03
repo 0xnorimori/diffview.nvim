@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -81,6 +82,29 @@ func TestReviewedCLI(t *testing.T) {
 	run("reviewed", "unset", "a.go", "--db", db, "--rev-range", "abc")
 	if out, _, _ = run("reviewed", "list", "--db", db, "--rev-range", "abc"); out != "b.go\n" {
 		t.Fatalf("after unset: %q", out)
+	}
+}
+
+func TestListNonexistentDBDoesNotCreateFile(t *testing.T) {
+	db := filepath.Join(t.TempDir(), "review.db")
+	out, errOut, code := run("list", "--db", db, "--json")
+	if code != 0 || out != "[]\n" {
+		t.Fatalf("list: code=%d out=%q err=%q", code, out, errOut)
+	}
+	if _, err := os.Stat(db); !os.IsNotExist(err) {
+		t.Fatalf("db should not have been created: %v", err)
+	}
+}
+
+func TestResolveNonexistentIDCreatesDB(t *testing.T) {
+	fixedClock(t)
+	db := filepath.Join(t.TempDir(), "review.db")
+	_, errOut, code := run("resolve", "1", "--db", db)
+	if code != 1 || !strings.Contains(errOut, "comment not found") {
+		t.Fatalf("resolve: code=%d err=%q", code, errOut)
+	}
+	if _, err := os.Stat(db); err != nil {
+		t.Fatalf("db should have been created: %v", err)
 	}
 }
 

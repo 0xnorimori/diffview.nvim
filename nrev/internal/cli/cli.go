@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -50,15 +51,27 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func open(dbPath string) (*store.Store, error) {
-	if dbPath == "" {
-		out, err := exec.Command("git", "rev-parse", "--git-dir").Output()
-		if err != nil {
-			return nil, fmt.Errorf("not in a git repository")
-		}
-		dbPath = filepath.Join(strings.TrimSpace(string(out)), "review.db")
+func resolveDBPath(dbPath string) (string, error) {
+	if dbPath != "" {
+		return dbPath, nil
 	}
-	s, err := store.Open(dbPath)
+	out, err := exec.Command("git", "rev-parse", "--git-dir").Output()
+	if err != nil {
+		return "", fmt.Errorf("not in a git repository")
+	}
+	return filepath.Join(strings.TrimSpace(string(out)), "review.db"), nil
+}
+
+func open(dbPath string) (*store.Store, error) {
+	path, err := resolveDBPath(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	return openPath(path)
+}
+
+func openPath(path string) (*store.Store, error) {
+	s, err := store.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -135,11 +148,21 @@ func runList(args []string, stdout io.Writer) error {
 	if !*jsonOut && !*mdOut {
 		return fmt.Errorf("list requires --json or --md")
 	}
+	path, err := resolveDBPath(*db)
+	if err != nil {
+		return err
+	}
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		if *jsonOut {
+			return render.JSON(stdout, nil)
+		}
+		return nil
+	}
 	rel, err := relToRepo(*file, *db != "")
 	if err != nil {
 		return err
 	}
-	s, err := open(*db)
+	s, err := openPath(path)
 	if err != nil {
 		return err
 	}
@@ -209,23 +232,35 @@ func runReviewed(args []string, stdout io.Writer) error {
 	if *revRange == "" {
 		return fmt.Errorf("--rev-range is required")
 	}
-	rel, err := relToRepo(file, *db != "")
-	if err != nil {
-		return err
-	}
-	s, err := open(*db)
-	if err != nil {
-		return err
-	}
-	defer s.Close()
 	switch sub {
 	case "set", "unset":
+		rel, err := relToRepo(file, *db != "")
+		if err != nil {
+			return err
+		}
+		s, err := open(*db)
+		if err != nil {
+			return err
+		}
+		defer s.Close()
 		if err := s.SetReviewed(*revRange, rel, sub == "set"); err != nil {
 			return err
 		}
 		_ = s.AutoGC()
 		return nil
 	case "list":
+		path, err := resolveDBPath(*db)
+		if err != nil {
+			return err
+		}
+		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+			return nil
+		}
+		s, err := openPath(path)
+		if err != nil {
+			return err
+		}
+		defer s.Close()
 		files, err := s.ListReviewed(*revRange)
 		if err != nil {
 			return err

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -78,6 +79,50 @@ func TestResolveReopenLifecycle(t *testing.T) {
 	}
 	if err := s.Resolve(99, ""); err != ErrNotFound {
 		t.Fatalf("want ErrNotFound, got %v", err)
+	}
+}
+
+func TestOpenRecoversFromPartialMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "review.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`
+CREATE TABLE comments (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  file        TEXT NOT NULL,
+  side        TEXT NOT NULL DEFAULT 'new' CHECK (side IN ('old','new')),
+  line_start  INTEGER NOT NULL,
+  line_end    INTEGER NOT NULL,
+  rev         TEXT NOT NULL,
+  line_text   TEXT NOT NULL,
+  type        TEXT NOT NULL CHECK (type IN ('issue','suggestion','question','note','praise')),
+  text        TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')),
+  resolution  TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+`); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("open after partial migration: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	id, err := s.Add(AddParams{File: "a.go", LineStart: 1, Rev: "WORKING", LineText: "x", Type: "issue", Text: "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := s.List(ListFilter{Status: "all"})
+	if err != nil || len(cs) != 1 || cs[0].ID != id {
+		t.Fatalf("list after recovery: %v %+v", err, cs)
 	}
 }
 

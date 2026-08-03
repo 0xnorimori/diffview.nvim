@@ -196,7 +196,7 @@ function M.add()
     if s > e then
       s, e = e, s
     end
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
   end
   vim.ui.select(types, { prompt = "Comment type" }, function(typ)
     if not typ then

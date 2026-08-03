@@ -54,4 +54,25 @@ local deleted = vim.wait(5000, function()
 end, 50)
 assert(deleted, "comment was not deleted")
 
+local mode_at_select
+vim.ui.select = function(_, _, cb)
+  mode_at_select = vim.fn.mode()
+  cb("suggestion")
+end
+vim.ui.input = function(_, cb)
+  cb("visual range comment")
+end
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+vim.api.nvim_feedkeys("Vj", "x", false)
+nrev.add()
+assert(mode_at_select == "n", "expected normal mode at select time, got " .. tostring(mode_at_select))
+local vis_ok = vim.wait(5000, function()
+  local out2 = vim.system({ root .. "/bin/nrev", "list", "--json", "--status", "open" }, { cwd = tmp, text = true }):wait()
+  local s2 = out2.stdout or ""
+  return s2:find("visual range comment", 1, true) ~= nil
+    and s2:find('"line_start":1', 1, true) ~= nil
+    and s2:find('"line_end":2', 1, true) ~= nil
+end, 100)
+assert(vis_ok, "visual-range comment not stored with 1..2 range")
+
 print("OK")

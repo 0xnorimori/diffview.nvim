@@ -44,15 +44,23 @@ local function process_queue()
   end
   running = true
   local item = table.remove(queue, 1)
-  vim.system(item.cmd, { cwd = item.cwd, text = true }, function(out)
+  local ok, err = pcall(vim.system, item.cmd, { cwd = item.cwd, text = true }, function(out)
     running = false
     vim.schedule(function()
       if item.cb then
-        item.cb(out)
+        local cb_ok, cb_err = pcall(item.cb, out)
+        if not cb_ok then
+          vim.notify("nrev: " .. tostring(cb_err), vim.log.levels.ERROR)
+        end
       end
       process_queue()
     end)
   end)
+  if not ok then
+    running = false
+    vim.notify("nrev: " .. tostring(err), vim.log.levels.ERROR)
+    vim.schedule(process_queue)
+  end
 end
 
 function M.run(args, cwd, cb)
@@ -66,14 +74,36 @@ function M.run(args, cwd, cb)
   process_queue()
 end
 
+local toplevel_cache = {}
+
+local function toplevel_for(gitdir)
+  local cached = toplevel_cache[gitdir]
+  if cached ~= nil then
+    return cached
+  end
+  local out = vim.system({ "git", "--git-dir=" .. gitdir, "rev-parse", "--show-toplevel" }, { text = true }):wait()
+  local top = out.code == 0 and vim.trim(out.stdout or "") or false
+  if top == "" then
+    top = false
+  end
+  toplevel_cache[gitdir] = top
+  return top
+end
+
+local hex40 = ("%x"):rep(40)
+
 local function buf_info(bufnr)
   local name = vim.api.nvim_buf_get_name(bufnr)
   if name == "" then
     return nil
   end
-  local gitdir, rev, rel = name:match("^diffview://(.-/%.git)/([^/]+)/(.+)$")
+  local gitdir, rev, rel = name:match("^diffview://(.+)/(" .. hex40 .. ")/(.+)$")
   if gitdir then
-    return { file = rel, cwd = vim.fs.dirname(gitdir), side = "old", rev = rev }
+    local top = toplevel_for(gitdir)
+    if not top then
+      return nil
+    end
+    return { file = rel, cwd = top, side = "old", rev = rev }
   end
   if name:match("^%w+://") then
     return nil

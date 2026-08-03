@@ -16,10 +16,12 @@ if it is on PATH, otherwise `~/develop/norimori/ggfarmco/diffview.nvim/bin/nrev`
      answer requires it.
    - `note`, `praise`: no action needed.
 4. Comments with `"side":"old"` reference the OLD revision in `rev` — their
-   line numbers point into that blob, not the working tree. Run
-   `git show <rev>:<file>` when you need to see that blob, and locate the
-   current equivalent code by `line_text`/context before editing. Never
-   apply old-blob line numbers to the current file.
+   line numbers point into that blob, not the working tree. To see that
+   blob, run `git show <rev>:<file>` for commit revs, or `git show
+   :0:<file>` for stage revs (`rev` already contains the colons, so don't
+   add another one before `<file>`), and locate the current equivalent code
+   by `line_text`/context before editing. Never apply old-blob line numbers
+   to the current file.
 5. After addressing a comment run:
    `nrev resolve <id> --note "<one line: what was done or the answer>"`
 6. Never resolve a comment you did not address — leave it open and say why.

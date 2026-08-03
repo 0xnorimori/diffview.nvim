@@ -60,20 +60,30 @@ function M.sync()
     local cwd = repo_cwd(view)
     local nrev = require("nrev")
     local snapshot = view._nrev_synced
-    local next_snapshot = {}
+    if snapshot and snapshot.rev ~= rev then
+      snapshot = nil
+    end
+    local next_flags = {}
     for _, file in ipairs(working_entries(view)) do
       local flag = file.reviewed and true or false
       if snapshot == nil then
         if flag then
           nrev.run({ "reviewed", "set", file.path, "--rev-range", rev }, cwd, nil)
         end
-      elseif snapshot[file.path] ~= flag then
-        local sub = flag and "set" or "unset"
-        nrev.run({ "reviewed", sub, file.path, "--rev-range", rev }, cwd, nil)
+      else
+        local prev = snapshot.flags[file.path]
+        if prev == nil then
+          if flag then
+            nrev.run({ "reviewed", "set", file.path, "--rev-range", rev }, cwd, nil)
+          end
+        elseif prev ~= flag then
+          local sub = flag and "set" or "unset"
+          nrev.run({ "reviewed", sub, file.path, "--rev-range", rev }, cwd, nil)
+        end
       end
-      next_snapshot[file.path] = flag
+      next_flags[file.path] = flag
     end
-    view._nrev_synced = next_snapshot
+    view._nrev_synced = { rev = rev, flags = next_flags }
   end)
 end
 
@@ -120,15 +130,15 @@ local function do_restore(view)
       end
     end
     local changed = false
-    local snapshot = {}
+    local flags = {}
     for _, file in ipairs(working_entries(view)) do
       if reviewed_paths[file.path] and not file.reviewed then
         file.reviewed = true
         changed = true
       end
-      snapshot[file.path] = file.reviewed and true or false
+      flags[file.path] = file.reviewed and true or false
     end
-    view._nrev_synced = snapshot
+    view._nrev_synced = { rev = rev, flags = flags }
     if changed and view.panel then
       view.panel:render()
       view.panel:redraw()

@@ -9,10 +9,11 @@ local function sh(args)
 end
 sh({ "git", "-C", tmp, "init", "-q" })
 sh({ "git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-q", "-m", "init" })
-vim.fn.writefile({ "line1" }, tmp .. "/f.txt")
+vim.fn.mkdir(tmp .. "/src", "p")
+vim.fn.writefile({ "line1" }, tmp .. "/src/f.txt")
 sh({ "git", "-C", tmp, "add", "." })
 sh({ "git", "-C", tmp, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "add f" })
-vim.fn.writefile({ "line1 changed" }, tmp .. "/f.txt")
+vim.fn.writefile({ "line1 changed" }, tmp .. "/src/f.txt")
 
 require("nrev").setup({ bin = root .. "/bin/nrev" })
 vim.cmd("cd " .. tmp)
@@ -40,7 +41,7 @@ vim.api.nvim_exec_autocmds("User", { pattern = "DiffviewReviewedToggled" })
 local rev = view.left.commit or view.adapter:head_rev().commit
 local written = vim.wait(5000, function()
   local out = vim.system({ root .. "/bin/nrev", "reviewed", "list", "--rev-range", rev }, { cwd = tmp, text = true }):wait()
-  return (out.stdout or ""):find("f.txt", 1, true) ~= nil
+  return (out.stdout or ""):find("src/f.txt", 1, true) ~= nil
 end, 100)
 assert(written, "reviewed row not written to db")
 
@@ -52,7 +53,7 @@ local restored = vim.wait(5000, function()
     return false
   end
   for _, file in v.files:iter() do
-    if file.path == "f.txt" and file.reviewed then
+    if file.path == "src/f.txt" and file.reviewed then
       return true
     end
   end

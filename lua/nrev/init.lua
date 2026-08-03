@@ -101,14 +101,22 @@ local function buf_info(bufnr)
   if name == "" then
     return nil
   end
-  local gitdir, rev, rel = name:match("^diffview://(.+)/([^/]+)/(.+)$")
-  local rev_ok = gitdir and ((rev:match("^%x+$") and #rev >= 7 and #rev <= 40) or rev:match("^:%d:$"))
-  if rev_ok then
-    local top = toplevel_for(gitdir)
-    if not top then
-      return nil
+  local gitdir, rest = name:match("^diffview://(.-/%.git)(/.*)$")
+  if gitdir then
+    local wt = rest:match("^(/worktrees/[^/]+)/")
+    if wt then
+      gitdir = gitdir .. wt
+      rest = rest:sub(#wt + 1)
     end
-    return { file = rel, cwd = top, side = "old", rev = rev }
+    local rev, rel = rest:match("^/([^/]+)/(.+)$")
+    local rev_ok = rev and ((rev:match("^%x+$") and #rev >= 7 and #rev <= 40) or rev:match("^:%d:$"))
+    if rev_ok then
+      local top = toplevel_for(gitdir)
+      if top then
+        return { file = rel, cwd = top, side = "old", rev = rev }
+      end
+    end
+    return nil
   end
   if name:match("^%w+://") then
     return nil

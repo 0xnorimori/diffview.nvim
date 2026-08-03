@@ -81,24 +81,29 @@ local function toplevel_for(gitdir)
   if cached ~= nil then
     return cached
   end
-  local out = vim.system({ "git", "--git-dir=" .. gitdir, "rev-parse", "--show-toplevel" }, { text = true }):wait()
-  local top = out.code == 0 and vim.trim(out.stdout or "") or false
-  if top == "" then
-    top = false
+  local top = gitdir:match("^(.*)/%.git$")
+  if not top then
+    local f = io.open(gitdir .. "/gitdir", "r")
+    if f then
+      local line = f:read("*l")
+      f:close()
+      if line and line ~= "" then
+        top = vim.fs.dirname(line)
+      end
+    end
   end
-  toplevel_cache[gitdir] = top
-  return top
+  toplevel_cache[gitdir] = top or false
+  return top or false
 end
-
-local hex40 = ("%x"):rep(40)
 
 local function buf_info(bufnr)
   local name = vim.api.nvim_buf_get_name(bufnr)
   if name == "" then
     return nil
   end
-  local gitdir, rev, rel = name:match("^diffview://(.+)/(" .. hex40 .. ")/(.+)$")
-  if gitdir then
+  local gitdir, rev, rel = name:match("^diffview://(.+)/([^/]+)/(.+)$")
+  local rev_ok = gitdir and ((rev:match("^%x+$") and #rev >= 7 and #rev <= 40) or rev:match("^:%d:$"))
+  if rev_ok then
     local top = toplevel_for(gitdir)
     if not top then
       return nil
@@ -328,7 +333,9 @@ function M.pick()
         ["default"] = function(selected)
           local file, line = selected[1]:match("^(.-):(%d+)")
           if file then
-            vim.cmd("edit " .. vim.fn.fnameescape(cwd .. "/" .. file))
+            local out = vim.system({ "git", "-C", cwd, "rev-parse", "--show-toplevel" }, { text = true }):wait()
+            local top = out.code == 0 and vim.trim(out.stdout or "") or cwd
+            vim.cmd("edit " .. vim.fn.fnameescape(top .. "/" .. file))
             vim.api.nvim_win_set_cursor(0, { tonumber(line), 0 })
           end
         end,
@@ -344,6 +351,13 @@ function M.setup(opts)
     group = group,
     callback = function(ev)
       M.refresh(ev.event == "FocusGained" and vim.api.nvim_get_current_buf() or ev.buf)
+    end,
+  })
+  vim.api.nvim_create_autocmd("BufWinEnter", {
+    group = group,
+    pattern = "diffview://*",
+    callback = function(ev)
+      M.refresh(ev.buf)
     end,
   })
   vim.api.nvim_create_user_command("NrevRefresh", function()

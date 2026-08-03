@@ -15,7 +15,12 @@ if it is on PATH, otherwise `~/develop/norimori/ggfarmco/diffview.nvim/bin/nrev`
    - `question`: answer it in the resolve note; only change code if the
      answer requires it.
    - `note`, `praise`: no action needed.
-4. After addressing a comment run:
+4. Comments with `"side":"old"` reference the OLD revision in `rev` — their
+   line numbers point into that blob, not the working tree. Run
+   `git show <rev>:<file>` when you need to see that blob, and locate the
+   current equivalent code by `line_text`/context before editing. Never
+   apply old-blob line numbers to the current file.
+5. After addressing a comment run:
    `nrev resolve <id> --note "<one line: what was done or the answer>"`
-5. Never resolve a comment you did not address — leave it open and say why.
-6. Finish with a short summary: one line per comment, id + what happened.
+6. Never resolve a comment you did not address — leave it open and say why.
+7. Finish with a short summary: one line per comment, id + what happened.

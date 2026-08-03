@@ -143,7 +143,7 @@ local function render(bufnr, comments)
     if c.resolution and c.resolution ~= vim.NIL then
       table.insert(virt, { { "  ↳ " .. c.resolution, "Comment" } })
     end
-    vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, {
+    local mark = vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, {
       sign_text = c.status == "resolved" and "✓" or (icons[c.type] or "●"),
       sign_hl_group = c.status == "resolved" and "Comment" or (hls[c.type] or "DiagnosticInfo"),
       virt_lines = virt,
@@ -153,6 +153,7 @@ local function render(bufnr, comments)
       row_end = math.min(c.line_end, count),
       id = c.id,
       status = c.status,
+      mark = mark,
     })
   end
   vim.b[bufnr].nrev_comments = rows
@@ -227,13 +228,27 @@ function M.add()
   end)
 end
 
+local function live_row(bufnr, r)
+  if r.mark then
+    local pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns, r.mark, {})
+    if pos and pos[1] then
+      return pos[1] + 1
+    end
+  end
+  return r.row
+end
+
 local function jump(dir)
+  local bufnr = vim.api.nvim_get_current_buf()
   local rows = vim.b.nrev_comments or {}
   if #rows == 0 then
     return
   end
   local cur = vim.fn.line(".")
-  local sorted = vim.deepcopy(rows)
+  local sorted = {}
+  for _, r in ipairs(rows) do
+    table.insert(sorted, { row = live_row(bufnr, r) })
+  end
   table.sort(sorted, function(a, b)
     return a.row < b.row
   end)
@@ -267,9 +282,12 @@ function M.prev()
 end
 
 local function comment_at_cursor()
+  local bufnr = vim.api.nvim_get_current_buf()
   local cur = vim.fn.line(".")
   for _, r in ipairs(vim.b.nrev_comments or {}) do
-    if r.row <= cur and cur <= r.row_end then
+    local row = live_row(bufnr, r)
+    local row_end = row + (r.row_end - r.row)
+    if row <= cur and cur <= row_end then
       return r
     end
   end
@@ -355,10 +373,23 @@ end
 function M.setup(opts)
   config = vim.tbl_extend("force", config, opts or {})
   local group = vim.api.nvim_create_augroup("nrev", { clear = true })
-  vim.api.nvim_create_autocmd({ "BufReadPost", "FocusGained" }, {
+  vim.api.nvim_create_autocmd("BufReadPost", {
     group = group,
     callback = function(ev)
-      M.refresh(ev.event == "FocusGained" and vim.api.nvim_get_current_buf() or ev.buf)
+      M.refresh(ev.buf)
+    end,
+  })
+  vim.api.nvim_create_autocmd("FocusGained", {
+    group = group,
+    callback = function()
+      local seen = {}
+      for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        local buf = vim.api.nvim_win_get_buf(win)
+        if not seen[buf] then
+          seen[buf] = true
+          M.refresh(buf)
+        end
+      end
     end,
   })
   vim.api.nvim_create_autocmd("BufWinEnter", {

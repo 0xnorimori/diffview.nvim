@@ -1284,6 +1284,12 @@ function GitAdapter:diffview_options(argo)
       { "all", "normal", "true" },
       { "no", "false" }
     ),
+    untracked_scoped = arg_parser.ambiguous_bool(
+      argo:get_flag("untracked-scoped", { plain = true }),
+      false,
+      { "true" },
+      { "false" }
+    ),
     selected_file = argo:get_flag("selected-file", { no_empty = true, expand = true })
       or (vim.bo.buftype == "" and pl:vim_expand("%:p"))
       or nil,
@@ -1672,7 +1678,9 @@ function GitAdapter:show_untracked(opt)
   if opt.revs then
     -- Never show untracked files when comparing against anything other than
     -- the index
-    if not (opt.revs.left.type == RevType.STAGE and opt.revs.right.type == RevType.LOCAL) then
+    local scoped = opt.dv_opt and opt.dv_opt.untracked_scoped
+    local vs_index = opt.revs.left.type == RevType.STAGE
+    if not ((vs_index or scoped) and opt.revs.right.type == RevType.LOCAL) then
       return false
     end
   end
@@ -1839,7 +1847,7 @@ GitAdapter.tracked_files = async.wrap(function(self, left, right, args, kind, op
   callback(nil, files, conflicts)
 end)
 
-GitAdapter.untracked_files = async.wrap(function(self, left, right, opt, callback)
+GitAdapter.untracked_files = async.wrap(function(self, left, right, opt, path_args, callback)
   local job = Job({
     command = self:bin(),
     args = utils.vec_join(
@@ -1848,7 +1856,9 @@ GitAdapter.untracked_files = async.wrap(function(self, left, right, opt, callbac
       "core.quotePath=false",
       "ls-files",
       "--others",
-      "--exclude-standard"
+      "--exclude-standard",
+      path_args and path_args[1] and "--" or nil,
+      path_args
     ),
     cwd = self.ctx.toplevel,
     log_opt = { label = "GitAdapter:untracked_files()", }

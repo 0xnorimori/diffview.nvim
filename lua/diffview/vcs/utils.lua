@@ -99,7 +99,9 @@ M.diff_file_list = async.wrap(function(adapter, left, right, path_args, dv_opt, 
     then return end
 
     ---@diagnostic disable-next-line: redefined-local
-    local err, ufiles = await(adapter:untracked_files(left, right, opt))
+    local err, ufiles = await(
+      adapter:untracked_files(left, right, opt, dv_opt.untracked_scoped and path_args or nil)
+    )
 
     if err then
       errors[#errors+1] = err

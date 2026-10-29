@@ -124,6 +124,10 @@ local function buf_info(bufnr)
   return { file = name, cwd = vim.fs.dirname(name), side = "new", rev = "WORKING" }
 end
 
+local function comments_changed()
+  vim.api.nvim_exec_autocmds("User", { pattern = "NrevCommentsChanged" })
+end
+
 local function render(bufnr, comments)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
   local count = vim.api.nvim_buf_line_count(bufnr)
@@ -222,6 +226,7 @@ function M.add()
           vim.notify("nrev add failed: " .. (out.stderr or ""), vim.log.levels.ERROR)
           return
         end
+        comments_changed()
         M.refresh(bufnr)
       end)
     end)
@@ -304,6 +309,7 @@ function M.toggle_resolve()
   local cwd = info and info.cwd or vim.uv.cwd()
   local cmd = r.status == "resolved" and { "reopen", tostring(r.id) } or { "resolve", tostring(r.id) }
   M.run(cmd, cwd, function()
+    comments_changed()
     M.refresh(bufnr)
   end)
 end
@@ -317,6 +323,7 @@ function M.delete()
   local info = buf_info(bufnr)
   local cwd = info and info.cwd or vim.uv.cwd()
   M.run({ "delete", tostring(r.id) }, cwd, function()
+    comments_changed()
     M.refresh(bufnr)
   end)
 end

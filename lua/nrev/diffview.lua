@@ -143,6 +143,10 @@ local function do_restore(view)
       view.panel:render()
       view.panel:redraw()
     end
+    vim.api.nvim_exec_autocmds("User", {
+      pattern = "NrevReviewedRestored",
+      data = { tabpage = view.tabpage },
+    })
   end)
 end
 

@@ -327,8 +327,9 @@ end)
 ---@param left Rev
 ---@param right Rev
 ---@param opt vcs.adapter.LayoutOpt
+---@param path_args? string[]
 ---@param callback? function
-VCSAdapter.untracked_files = async.wrap(function(self, left, right, opt, callback)
+VCSAdapter.untracked_files = async.wrap(function(self, left, right, opt, path_args, callback)
   oop.abstract_stub()
 end)
 

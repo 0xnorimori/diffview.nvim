@@ -5,9 +5,16 @@ local eq = helpers.eq
 vim.env.GIT_CONFIG_GLOBAL = "/dev/null"
 vim.env.GIT_CONFIG_NOSYSTEM = "1"
 
+local nrev_bin = vim.fn.getcwd() .. "/bin/nrev"
+
 local function git(dir, ...)
   local cmd = { "git", "-C", dir, "-c", "user.email=t@t", "-c", "user.name=t" }
-  vim.fn.system(vim.list_extend(cmd, { ... }))
+  return vim.trim(vim.fn.system(vim.list_extend(cmd, { ... })))
+end
+
+local function nrev(dir, ...)
+  local out = vim.system(vim.list_extend({ nrev_bin }, { ... }), { cwd = dir }):wait()
+  assert(out.code == 0, out.stderr)
 end
 
 local function wait_for(pred)
@@ -24,13 +31,33 @@ local function make_repo()
   git(repo, "commit", "-q", "-m", "init")
   vim.fn.writefile({ "package a", "func A() int { return 1 }", "func B() {}" }, repo .. "/a.go")
   vim.fn.writefile({ "package a", "func TestA() {}" }, repo .. "/a_test.go")
+  vim.fn.writefile({ "package a" }, repo .. "/b_test.go")
   vim.fn.writefile({ "one", "two", "three" }, repo .. "/new.txt")
   return repo
 end
 
+local function capture(fn)
+  local sent = {}
+  local rpcnotify = vim.rpcnotify
+  vim.rpcnotify = function(...)
+    table.insert(sent, { ... })
+  end
+  local ok, err = pcall(fn, sent)
+  vim.rpcnotify = rpcnotify
+  if not ok then
+    error(err, 0)
+  end
+end
+
+local function was_sent(sent, kind, path)
+  local expected = { 7, "clubmate", { event = "review", kind = kind, path = path } }
+  return vim.tbl_contains(sent, function(v)
+    return vim.deep_equal(v, expected)
+  end, { predicate = true })
+end
+
 describe("diffview.clubmate", function()
-  local repo = make_repo()
-  local clubmate, tab
+  local clubmate, repo, tab
 
   local function entry(path)
     for _, e in ipairs(clubmate.entries(tab)) do
@@ -44,26 +71,31 @@ describe("diffview.clubmate", function()
     return require("diffview.lib").tabpage_to_view(tab)
   end
 
-  local function opened(path)
-    local cur = view().cur_entry
+  local function opened(v, path)
+    local cur = v.cur_entry
     return cur ~= nil and cur.path == path and cur.opened
+  end
+
+  local function open_review()
+    tab = clubmate.open({ cwd = repo, base = "HEAD" })
+    wait_for(function()
+      return opened(view(), "a.go")
+    end)
   end
 
   before_each(function()
     vim.cmd("runtime! plugin/diffview.lua")
     require("diffview").setup({ use_icons = false })
     clubmate = require("diffview.clubmate")
-    tab = clubmate.open({ cwd = repo })
-    wait_for(function()
-      return opened("a.go")
-    end)
+    repo = make_repo()
+    open_review()
   end)
 
   after_each(function()
     clubmate.close(tab)
   end)
 
-  it("lists modified and untracked entries with stats", function()
+  it("lists modified and untracked entries with stats against a base", function()
     eq(1, clubmate.version)
     eq({
       {
@@ -83,6 +115,14 @@ describe("diffview.clubmate", function()
         comments = 0,
       },
       {
+        path = "b_test.go",
+        status = "?",
+        additions = 1,
+        deletions = 0,
+        reviewed = false,
+        comments = 0,
+      },
+      {
         path = "new.txt",
         status = "?",
         additions = 3,
@@ -91,6 +131,24 @@ describe("diffview.clubmate", function()
         comments = 0,
       },
     }, clubmate.entries(tab))
+  end)
+
+  it("keeps plain DiffviewOpen against a rev free of untracked files", function()
+    local lib = require("diffview.lib")
+    require("diffview").open({ "-C" .. repo, "HEAD" })
+    local plain = lib.get_current_view()
+    wait_for(function()
+      return opened(plain, "a.go")
+    end)
+
+    local statuses = {}
+    for _, file in plain.files:iter() do
+      statuses[file.path] = file.status
+    end
+    eq({ ["a.go"] = "M", ["a_test.go"] = "M" }, statuses)
+
+    plain:close()
+    lib.dispose_view(plain)
   end)
 
   it("hides the file panel on open and toggles it", function()
@@ -107,7 +165,9 @@ describe("diffview.clubmate", function()
     wait_for(function()
       return entry("a_test.go") == nil
     end)
-    eq(2, #clubmate.entries(tab))
+    eq({ "a.go", "new.txt" }, vim.tbl_map(function(e)
+      return e.path
+    end, clubmate.entries(tab)))
 
     clubmate.set_excludes({}, tab)
     wait_for(function()
@@ -116,34 +176,90 @@ describe("diffview.clubmate", function()
     eq(true, entry("a_test.go").reviewed)
   end)
 
+  it("never flips back a mark changed underneath on refresh", function()
+    clubmate.toggle_reviewed("a.go", tab)
+    for _, file in view().files:iter() do
+      if file.path == "new.txt" then
+        file.reviewed = true
+      end
+    end
+
+    local updated = false
+    view().emitter:on("files_updated", function()
+      updated = true
+    end)
+    view():update_files()
+    wait_for(function()
+      return updated
+    end)
+
+    eq(true, entry("a.go").reviewed)
+    eq(true, entry("new.txt").reviewed)
+  end)
+
   it("jumps to the next unreviewed file with wrap-around and opens it", function()
     clubmate.toggle_reviewed("a.go", tab)
 
     eq("a_test.go", clubmate.next_unreviewed(1, tab))
     wait_for(function()
-      return opened("a_test.go")
+      return opened(view(), "a_test.go")
     end)
 
     eq("new.txt", clubmate.next_unreviewed(-1, tab))
     wait_for(function()
-      return opened("new.txt")
+      return opened(view(), "new.txt")
     end)
   end)
 
   it("notifies subscribers when a file's reviewed mark is toggled", function()
-    local sent = {}
-    local rpcnotify = vim.rpcnotify
-    vim.rpcnotify = function(...)
-      table.insert(sent, { ... })
+    capture(function(sent)
+      clubmate.subscribe(7)
+      clubmate.toggle_reviewed("new.txt", tab)
+      assert.is_true(was_sent(sent, "reviewed", "new.txt"))
+    end)
+  end)
+
+  local nrev_it = vim.fn.executable(nrev_bin) == 1 and it or pending
+
+  nrev_it("reflects nrev reviewed marks and open comment counts", function()
+    clubmate.close(tab)
+    require("nrev").setup({ bin = nrev_bin })
+    local head = git(repo, "rev-parse", "HEAD")
+    local function comment(text)
+      nrev(
+        repo,
+        "add",
+        "--file", "a.go",
+        "--line-start", "1",
+        "--line-end", "1",
+        "--side", "new",
+        "--rev", "WORKING",
+        "--line-text", "package a",
+        "--type", "note",
+        "--text", text
+      )
     end
+    nrev(repo, "reviewed", "set", "a.go", "--rev-range", head)
+    comment("first")
 
-    clubmate.subscribe(7)
-    clubmate.toggle_reviewed("new.txt", tab)
-    vim.rpcnotify = rpcnotify
+    capture(function(sent)
+      clubmate.subscribe(7)
+      open_review()
+      wait_for(function()
+        return was_sent(sent, "reviewed_restored")
+      end)
+      eq(true, entry("a.go").reviewed)
+      eq(1, entry("a.go").comments)
 
-    local expected = { 7, "clubmate", { event = "review", kind = "reviewed", path = "new.txt" } }
-    assert.is_true(vim.tbl_contains(sent, function(v)
-      return vim.deep_equal(v, expected)
-    end, { predicate = true }))
+      for i = #sent, 1, -1 do
+        sent[i] = nil
+      end
+      comment("second")
+      vim.api.nvim_exec_autocmds("User", { pattern = "NrevCommentsChanged" })
+      wait_for(function()
+        return was_sent(sent, "comments")
+      end)
+      eq(2, entry("a.go").comments)
+    end)
   end)
 end)

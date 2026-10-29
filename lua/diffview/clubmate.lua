@@ -51,19 +51,16 @@ local function find(view, path)
   end
 end
 
+local function exclude_specs(globs)
+  return vim.tbl_map(function(glob)
+    return ":(exclude)" .. glob
+  end, globs or {})
+end
+
 local function snapshot_reviewed(view, state)
   for _, file in view.files:iter() do
     state.reviewed[file.path] = file.reviewed
   end
-end
-
-local function set_path_args(view, globs)
-  local specs = vim.tbl_map(function(glob)
-    return ":(exclude)" .. glob
-  end, globs or {})
-  view.path_args = specs
-  view.panel.path_args = specs
-  view.adapter.ctx.path_args = specs
 end
 
 local function line_count(path)
@@ -79,30 +76,20 @@ local function line_count(path)
   return n
 end
 
-local function nrev_bin()
-  if vim.fn.executable(local_nrev) == 1 then
-    return local_nrev
-  end
-  if vim.fn.executable("nrev") == 1 then
-    return "nrev"
-  end
+local function count_cmd()
+  local bin = vim.fn.executable(local_nrev) == 1 and local_nrev
+    or vim.fn.executable("nrev") == 1 and "nrev"
+    or nil
+  return bin and { bin, "list", "--json", "--status", "open" }
 end
 
-local function comment_counts(cwd)
+local function parse_counts(out)
   local counts = {}
-  local bin = nrev_bin()
-  if not bin then
+  if out.code ~= 0 or not out.stdout or out.stdout == "" then
     return counts
   end
-  local ok, out = pcall(function()
-    local cmd = { bin, "list", "--json", "--status", "open" }
-    return vim.system(cmd, { cwd = cwd, text = true }):wait(2000)
-  end)
-  if not ok or out.code ~= 0 or not out.stdout or out.stdout == "" then
-    return counts
-  end
-  local decoded, comments = pcall(vim.json.decode, out.stdout)
-  if not decoded or type(comments) ~= "table" then
+  local ok, comments = pcall(vim.json.decode, out.stdout)
+  if not ok or type(comments) ~= "table" then
     return counts
   end
   for _, c in ipairs(comments) do
@@ -111,20 +98,52 @@ local function comment_counts(cwd)
   return counts
 end
 
+local function load_counts(view)
+  local cmd = count_cmd()
+  if not cmd then
+    return {}
+  end
+  local ok, out = pcall(function()
+    return vim.system(cmd, { cwd = view.adapter.ctx.toplevel, text = true }):wait(2000)
+  end)
+  return ok and parse_counts(out) or {}
+end
+
+local function refresh_counts(view, state)
+  local cmd = count_cmd()
+  if not cmd then
+    return
+  end
+  pcall(vim.system, cmd, { cwd = view.adapter.ctx.toplevel, text = true }, function(out)
+    vim.schedule(function()
+      if reviews[view.tabpage] ~= state then
+        return
+      end
+      local counts = parse_counts(out)
+      if not vim.deep_equal(counts, state.counts) then
+        state.counts = counts
+        notify("comments")
+      end
+    end)
+  end)
+end
+
 local function open_file(view, tab, file)
   focus(tab)
   view:set_file(file, true)
 end
 
-local function watch(view)
+local function watch(view, state)
   view.emitter:on("files_updated", function()
-    local state = reviews[view.tabpage]
     local changed = false
     for _, file in view.files:iter() do
-      local mark = state and state.reviewed[file.path]
-      if mark ~= nil and mark ~= file.reviewed then
-        file.reviewed = mark
-        changed = true
+      if not state.seen[file] then
+        state.seen[file] = true
+        local mark = state.reviewed[file.path]
+        if mark ~= nil and mark ~= file.reviewed then
+          file.reviewed = mark
+          changed = true
+        end
       end
     end
     if changed then
@@ -132,14 +151,23 @@ local function watch(view)
       view.panel:redraw()
     end
     notify("files_updated")
+    refresh_counts(view, state)
   end)
   view.emitter:on("file_open_post", function(_, entry)
     notify("file_open", entry.path)
   end)
+  view.emitter:on("view_closed", function()
+    reviews[view.tabpage] = nil
+    if last_tab == view.tabpage then
+      last_tab = nil
+    end
+  end)
 end
 
+local group = api.nvim_create_augroup("diffview_clubmate", { clear = true })
+
 api.nvim_create_autocmd("User", {
-  group = api.nvim_create_augroup("diffview_clubmate", { clear = true }),
+  group = group,
   pattern = "DiffviewReviewedToggled",
   callback = function()
     local view, state = resolve(api.nvim_get_current_tabpage())
@@ -150,30 +178,57 @@ api.nvim_create_autocmd("User", {
   end,
 })
 
+api.nvim_create_autocmd("User", {
+  group = group,
+  pattern = "NrevReviewedRestored",
+  callback = function(ev)
+    local view, state = resolve(ev.data and ev.data.tabpage)
+    if view then
+      snapshot_reviewed(view, state)
+      notify("reviewed_restored")
+    end
+  end,
+})
+
+api.nvim_create_autocmd("User", {
+  group = group,
+  pattern = "NrevCommentsChanged",
+  callback = function()
+    for tab, state in pairs(reviews) do
+      local view = lib.tabpage_to_view(tab)
+      if view then
+        refresh_counts(view, state)
+      end
+    end
+  end,
+})
+
 function M.open(opts)
-  local args = { "-C" .. opts.cwd }
+  local args = { "-C" .. (vim.uv.fs_realpath(opts.cwd) or opts.cwd), "--untracked-scoped" }
   if opts.base then
     table.insert(args, opts.base)
   end
+  table.insert(args, "--")
+  vim.list_extend(args, exclude_specs(opts.excludes))
   local view = lib.diffview_open(args)
   if not view then
     return nil
   end
-  set_path_args(view, opts.excludes)
   view:open()
   view.panel:close()
-  reviews[view.tabpage] = { reviewed = {} }
+  local state = { reviewed = {}, seen = setmetatable({}, { __mode = "k" }) }
+  reviews[view.tabpage] = state
   last_tab = view.tabpage
-  watch(view)
+  watch(view, state)
   return view.tabpage
 end
 
 function M.entries(tab)
-  local view = resolve(tab)
+  local view, state = resolve(tab)
   if not view then
     return {}
   end
-  local counts = comment_counts(view.adapter.ctx.toplevel)
+  state.counts = state.counts or load_counts(view)
   return vim.tbl_map(function(file)
     local stats = file.stats or {}
     local additions = stats.additions
@@ -186,7 +241,7 @@ function M.entries(tab)
       additions = additions or 0,
       deletions = stats.deletions or 0,
       reviewed = file.reviewed,
-      comments = counts[file.path] or 0,
+      comments = state.counts[file.path] or 0,
     }
   end, view.panel:ordered_file_list())
 end
@@ -240,9 +295,8 @@ function M.set_excludes(globs, tab)
     return
   end
   snapshot_reviewed(view, state)
-  set_path_args(view, globs)
   focus(t)
-  view:update_files()
+  view:set_path_args(exclude_specs(globs))
 end
 
 function M.set_panel(visible, tab)
@@ -259,17 +313,10 @@ function M.set_panel(visible, tab)
 end
 
 function M.close(tab)
-  local view, _, t = resolve(tab)
+  local view = resolve(tab)
   if view then
     view:close()
     lib.dispose_view(view)
-  end
-  t = t or tab
-  if t then
-    reviews[t] = nil
-    if last_tab == t then
-      last_tab = nil
-    end
   end
 end
 

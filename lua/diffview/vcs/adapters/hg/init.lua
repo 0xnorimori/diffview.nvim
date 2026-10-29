@@ -1162,7 +1162,7 @@ HgAdapter.tracked_files = async.wrap(function (self, left, right, args, kind, op
   callback(nil, files, conflicts)
 end)
 
-HgAdapter.untracked_files = async.wrap(function(self, left, right, opt, callback)
+HgAdapter.untracked_files = async.wrap(function(self, left, right, opt, path_args, callback)
   local job = Job({
     command = self:bin(),
     args = utils.vec_join(

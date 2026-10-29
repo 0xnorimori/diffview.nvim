@@ -29,6 +29,7 @@ local M = {}
 
 ---@class DiffViewOptions
 ---@field show_untracked? boolean
+---@field untracked_scoped? boolean
 ---@field selected_file? string Path to the preferred initially selected file.
 
 ---@class DiffView : StandardView
@@ -389,6 +390,14 @@ DiffView.get_updated_files = async.wrap(function(self, callback)
     callback
   )
 end)
+
+---@param path_args string[]
+function DiffView:set_path_args(path_args)
+  self.path_args = path_args
+  self.panel.path_args = path_args
+  self.adapter.ctx.path_args = path_args
+  self:update_files()
+end
 
 ---Update the file list, including stats and status for all files.
 DiffView.update_files = debounce.debounce_trailing(

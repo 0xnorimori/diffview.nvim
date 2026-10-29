@@ -262,6 +262,94 @@ describe("diffview.clubmate", function()
     end)
   end)
 
+  it("never runs shell commands from the cwd or exclude globs", function()
+    clubmate.close(tab)
+    local marker = vim.fn.tempname()
+    local evil = vim.fn.tempname() .. "/r `touch " .. marker .. "` $HOME"
+    vim.fn.mkdir(evil, "p")
+    git(evil, "init", "-q")
+    vim.fn.writefile({ "a" }, evil .. "/a.go")
+    vim.fn.writefile({ "x" }, evil .. "/$HOME.go")
+    vim.fn.writefile({ "y" }, evil .. "/`touch " .. vim.fs.basename(marker) .. "`.go")
+    git(evil, "add", ".")
+    git(evil, "commit", "-q", "-m", "init")
+    vim.fn.writefile({ "b" }, evil .. "/a.go")
+    vim.fn.writefile({ "x2" }, evil .. "/$HOME.go")
+    vim.fn.writefile({ "y2" }, evil .. "/`touch " .. vim.fs.basename(marker) .. "`.go")
+
+    tab = clubmate.open({
+      cwd = evil,
+      base = "HEAD",
+      excludes = { "$HOME.go", "`touch " .. marker .. "`*" },
+    })
+    wait_for(function()
+      local cur = view().cur_entry
+      return #clubmate.entries(tab) == 2 and cur ~= nil and cur.opened
+    end)
+
+    eq({ "`touch " .. vim.fs.basename(marker) .. "`.go", "a.go" }, vim.tbl_map(function(e)
+      return e.path
+    end, clubmate.entries(tab)))
+    eq(nil, vim.uv.fs_stat(marker))
+  end)
+
+  it("counts an untracked symlink as one line without following it", function()
+    local fifo = repo .. "/pipe"
+    assert(vim.fn.system({ "mkfifo", fifo }) == "" and vim.v.shell_error == 0)
+    assert(vim.uv.fs_symlink(fifo, repo .. "/link"))
+    view():update_files()
+    wait_for(function()
+      return entry("link") ~= nil
+    end)
+    eq(1, entry("link").additions)
+  end)
+
+  it("sets a reviewed mark idempotently", function()
+    eq(true, clubmate.set_reviewed("a.go", true, tab))
+    eq(true, clubmate.set_reviewed("a.go", true, tab))
+    eq(false, clubmate.set_reviewed("a.go", false, tab))
+    eq(false, entry("a.go").reviewed)
+  end)
+
+  it("notifies subscribers when the user closes the review, not when the module does", function()
+    capture(function(sent)
+      clubmate.subscribe(7)
+      clubmate.close(tab)
+      assert.is_false(was_sent(sent, "closed"))
+
+      open_review()
+      vim.cmd("DiffviewClose")
+      assert.is_true(was_sent(sent, "closed"))
+    end)
+  end)
+
+  it("keeps async messages of module-driven opens out of vim.notify", function()
+    local echoed = {}
+    local notify = vim.notify
+    vim.notify = function(msg, level)
+      table.insert(echoed, { msg, level })
+    end
+    local ok, err = pcall(function()
+      local async = require("diffview.async")
+      local v = view()
+      local set_file = v.set_file
+      v.set_file = async.void(function(self, ...)
+        async.await(async.timeout(50))
+        async.await(async.schedule_now())
+        vim.notify("async boom", vim.log.levels.ERROR)
+        async.await(set_file(self, ...))
+      end)
+      clubmate.select("new.txt", tab)
+      wait_for(function()
+        return opened(view(), "new.txt")
+      end)
+      vim.wait(200)
+    end)
+    vim.notify = notify
+    assert(ok, err)
+    eq({}, echoed)
+  end)
+
   local nrev_it = vim.fn.executable(nrev_bin) == 1 and it or pending
 
   nrev_it("reflects nrev reviewed marks and open comment counts", function()
@@ -303,6 +391,27 @@ describe("diffview.clubmate", function()
         return was_sent(sent, "comments")
       end)
       eq(2, entry("a.go").comments)
+    end)
+  end)
+
+  nrev_it("restores persisted marks of files shown again after an exclude is lifted", function()
+    clubmate.close(tab)
+    require("nrev").setup({ bin = nrev_bin })
+    nrev(repo, "reviewed", "set", "a_test.go", "--rev-range", git(repo, "rev-parse", "HEAD"))
+
+    capture(function(sent)
+      clubmate.subscribe(7)
+      tab = clubmate.open({ cwd = repo, base = "HEAD", excludes = { "*_test.go" } })
+      wait_for(function()
+        return was_sent(sent, "reviewed_restored")
+      end)
+      eq(nil, entry("a_test.go"))
+
+      clubmate.set_excludes({}, tab)
+      wait_for(function()
+        local e = entry("a_test.go")
+        return e ~= nil and e.reviewed
+      end)
     end)
   end)
 end)

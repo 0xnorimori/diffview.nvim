@@ -139,3 +139,28 @@ func TestDelete(t *testing.T) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
+
+func TestConcurrentOpenWaitsForLocks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "review.db")
+	first, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Close()
+	errs := make(chan error, 16)
+	for range 16 {
+		go func() {
+			s, err := Open(path)
+			if err == nil {
+				_, err = s.Add(AddParams{File: "a.go", LineStart: 1, Rev: "WORKING", LineText: "x", Type: "note", Text: "t"})
+				s.Close()
+			}
+			errs <- err
+		}()
+	}
+	for range 16 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+}

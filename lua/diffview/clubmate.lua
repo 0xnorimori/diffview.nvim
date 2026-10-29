@@ -15,9 +15,53 @@ local reviews = {}
 local subscribers = {}
 local last_tab
 local toggled_path
+local quiet = { depth = 0, sinks = {} }
+
+local MAX_COUNT_BYTES = 1048576
+local QUIET_TIMEOUT = 10000
 
 local source = debug.getinfo(1, "S").source:sub(2)
 local local_nrev = vim.fs.dirname(vim.fs.dirname(vim.fs.dirname(source))) .. "/bin/nrev"
+
+local function hush()
+  if quiet.depth == 0 then
+    quiet.original = vim.notify
+    quiet.hook = function(msg, level)
+      local text = tostring(msg)
+      local sink = quiet.sinks[#quiet.sinks]
+      if sink and level == vim.log.levels.ERROR then
+        table.insert(sink, text)
+      else
+        logger:warn("[clubmate] suppressed message: " .. text)
+      end
+    end
+    vim.notify = quiet.hook
+  end
+  quiet.depth = quiet.depth + 1
+end
+
+local function unhush()
+  quiet.depth = quiet.depth - 1
+  if quiet.depth == 0 then
+    if vim.notify == quiet.hook then
+      vim.notify = quiet.original
+    end
+    quiet.original, quiet.hook = nil, nil
+  end
+end
+
+local function hold()
+  hush()
+  local released = false
+  local function release()
+    if not released then
+      released = true
+      unhush()
+    end
+  end
+  vim.defer_fn(release, QUIET_TIMEOUT)
+  return release
+end
 
 local function notify(kind, path)
   local payload = { event = "review", kind = kind, path = path }
@@ -53,9 +97,9 @@ local function find(view, path)
   end
 end
 
-local function exclude_specs(globs)
+local function exclude_specs(globs, escape)
   return vim.tbl_map(function(glob)
-    return ":(exclude)" .. glob
+    return ":(exclude)" .. (escape and vim.fn.fnameescape(glob) or glob)
   end, globs or {})
 end
 
@@ -66,16 +110,23 @@ local function snapshot_reviewed(view, state)
 end
 
 local function line_count(path)
-  local f = io.open(path, "rb")
-  if not f then
+  local stat = vim.uv.fs_lstat(path)
+  if not stat or stat.type ~= "file" then
+    return stat and stat.type == "link" and 1 or 0
+  end
+  local flags = bit.bor(vim.uv.constants.O_RDONLY or 0, vim.uv.constants.O_NONBLOCK or 0)
+  local fd = vim.uv.fs_open(path, flags, 0)
+  if not fd then
     return 0
   end
-  local n = 0
-  for _ in f:lines() do
-    n = n + 1
+  local fstat = vim.uv.fs_fstat(fd)
+  local data = fstat and fstat.type == "file" and vim.uv.fs_read(fd, MAX_COUNT_BYTES, 0) or ""
+  vim.uv.fs_close(fd)
+  if data == "" or data:find("\0", 1, true) then
+    return 0
   end
-  f:close()
-  return n
+  local _, n = data:gsub("\n", "")
+  return data:sub(-1) == "\n" and n or n + 1
 end
 
 local function count_cmd()
@@ -132,11 +183,12 @@ end
 
 local open_file
 
-local run_open = async.void(function(view, state, tab, file)
+local run_open = async.void(function(view, state, tab, file, release)
   local ok, err = async.pawait(view.set_file, view, file, true)
   if not ok then
     logger:error("[clubmate] set_file: " .. tostring(err))
   end
+  release()
   state.opening = false
   local next_file = state.pending_file
   state.pending_file = nil
@@ -152,7 +204,7 @@ function open_file(view, state, tab, file)
   end
   state.opening = true
   focus(tab)
-  run_open(view, state, tab, file)
+  run_open(view, state, tab, file, hold())
 end
 
 local function when_ready(state, fn)
@@ -181,6 +233,7 @@ local function mark_ready(view, state, tab)
     if file and reviews[tab] == state then
       open_file(view, state, tab, file)
     end
+    state.release_open()
   end)
 end
 
@@ -212,9 +265,13 @@ local function watch(view, state)
     notify("file_open", entry.path)
   end)
   view.emitter:on("view_closed", function()
+    state.release_open()
     reviews[view.tabpage] = nil
     if last_tab == view.tabpage then
       last_tab = nil
+      if not state.closing then
+        notify("closed")
+      end
     end
   end)
 end
@@ -263,23 +320,31 @@ local function open(opts)
   if not cwd then
     error("cwd does not exist: " .. tostring(opts.cwd), 0)
   end
-  local args = { "-C" .. cwd, "--untracked-scoped" }
+  local args = { "-C" .. vim.fn.fnameescape(cwd), "--untracked-scoped" }
   if opts.base then
     table.insert(args, opts.base)
   end
   table.insert(args, "--")
-  vim.list_extend(args, exclude_specs(opts.excludes))
+  vim.list_extend(args, exclude_specs(opts.excludes, true))
   local view = lib.diffview_open(args)
   if not view then
     return nil
   end
-  view:open()
-  view.panel:close()
+  local release = hold()
+  local ok, err = pcall(function()
+    view:open()
+    view.panel:close()
+  end)
+  if not ok then
+    release()
+    error(err, 0)
+  end
   local state = {
     reviewed = {},
     seen = setmetatable({}, { __mode = "k" }),
     ready = false,
     queue = {},
+    release_open = release,
   }
   reviews[view.tabpage] = state
   last_tab = view.tabpage
@@ -325,7 +390,7 @@ local function select_path(path, tab)
   end
 end
 
-local function toggle_reviewed(path, tab)
+local function set_reviewed(path, want, tab)
   local view, state, t = resolve(tab)
   if not view then
     return nil
@@ -334,19 +399,29 @@ local function toggle_reviewed(path, tab)
   if not file then
     if not state.ready then
       when_ready(state, function()
-        toggle_reviewed(path, t)
+        set_reviewed(path, want, t)
       end)
     end
     return nil
   end
+  if want == nil then
+    want = not file.reviewed
+  end
+  if file.reviewed == want then
+    return file.reviewed
+  end
   focus(t)
-  file.reviewed = not file.reviewed
+  file.reviewed = want
   toggled_path = path
   api.nvim_exec_autocmds("User", { pattern = "DiffviewReviewedToggled" })
   toggled_path = nil
   view.panel:render()
   view.panel:redraw()
   return file.reviewed
+end
+
+local function toggle_reviewed(path, tab)
+  return set_reviewed(path, nil, tab)
 end
 
 local function next_unreviewed(dir, tab)
@@ -381,6 +456,14 @@ local function set_excludes(globs, tab)
   end
   snapshot_reviewed(view, state)
   focus(t)
+  local release = hold()
+  view.emitter:once("files_updated", function()
+    release()
+    local nrev = package.loaded["nrev.diffview"]
+    if nrev then
+      nrev.restore(view)
+    end
+  end)
   view:set_path_args(exclude_specs(globs))
 end
 
@@ -398,8 +481,9 @@ local function set_panel(visible, tab)
 end
 
 local function close(tab)
-  local view = resolve(tab)
+  local view, state = resolve(tab)
   if view then
+    state.closing = true
     view:close()
     lib.dispose_view(view)
   end
@@ -412,16 +496,11 @@ end
 local function guard(name, fn)
   return function(...)
     local errors = {}
-    local notify = vim.notify
-    vim.notify = function(msg, level, opts)
-      if level == vim.log.levels.ERROR then
-        table.insert(errors, tostring(msg))
-        return
-      end
-      return notify(msg, level, opts)
-    end
+    table.insert(quiet.sinks, errors)
+    hush()
     local res = vim.F.pack_len(pcall(fn, ...))
-    vim.notify = notify
+    unhush()
+    table.remove(quiet.sinks)
     if not res[1] then
       table.insert(errors, tostring(res[2]))
     end
@@ -440,6 +519,7 @@ M.open = guard("open", open)
 M.entries = guard("entries", entries)
 M.select = guard("select", select_path)
 M.toggle_reviewed = guard("toggle_reviewed", toggle_reviewed)
+M.set_reviewed = guard("set_reviewed", set_reviewed)
 M.next_unreviewed = guard("next_unreviewed", next_unreviewed)
 M.set_excludes = guard("set_excludes", set_excludes)
 M.set_panel = guard("set_panel", set_panel)

@@ -211,6 +211,49 @@ describe("diffview.clubmate", function()
     end)
   end)
 
+  it("defers selects issued before the first file is open", function()
+    clubmate.close(tab)
+    local errors = {}
+    local notify = vim.notify
+    vim.notify = function(msg, level)
+      if level == vim.log.levels.ERROR then
+        table.insert(errors, msg)
+      end
+    end
+    vim.v.errmsg = ""
+    local ok, err = pcall(function()
+      tab = clubmate.open({ cwd = repo, base = "HEAD" })
+      clubmate.select("b_test.go", tab)
+      view().emitter:once("files_updated", function()
+        clubmate.select("new.txt", tab)
+      end)
+      wait_for(function()
+        return opened(view(), "new.txt")
+      end)
+      vim.wait(300)
+    end)
+    vim.notify = notify
+    assert(ok, err)
+    eq({}, errors)
+    eq("", vim.v.errmsg)
+  end)
+
+  it("returns an error instead of echoing it", function()
+    local echoed = {}
+    local notify = vim.notify
+    vim.notify = function(msg)
+      table.insert(echoed, msg)
+    end
+    local plain_dir = vim.fn.tempname()
+    vim.fn.mkdir(plain_dir, "p")
+    local ok, missing, err = pcall(clubmate.open, { cwd = plain_dir })
+    vim.notify = notify
+    assert(ok, missing)
+    eq(nil, missing)
+    assert.is_truthy(err:find("Not a repo", 1, true))
+    eq({}, echoed)
+  end)
+
   it("notifies subscribers when a file's reviewed mark is toggled", function()
     capture(function(sent)
       clubmate.subscribe(7)

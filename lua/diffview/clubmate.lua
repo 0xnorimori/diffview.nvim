@@ -1,9 +1,11 @@
 require("diffview.bootstrap")
 
+local async = require("diffview.async")
 local lib = require("diffview.lib")
 local utils = require("diffview.utils")
 
 local api = vim.api
+local logger = DiffviewGlobal.logger
 
 local M = {}
 
@@ -128,9 +130,58 @@ local function refresh_counts(view, state)
   end)
 end
 
-local function open_file(view, tab, file)
+local open_file
+
+local run_open = async.void(function(view, state, tab, file)
+  local ok, err = async.pawait(view.set_file, view, file, true)
+  if not ok then
+    logger:error("[clubmate] set_file: " .. tostring(err))
+  end
+  state.opening = false
+  local next_file = state.pending_file
+  state.pending_file = nil
+  if next_file and reviews[tab] == state then
+    open_file(view, state, tab, next_file)
+  end
+end)
+
+function open_file(view, state, tab, file)
+  if not state.ready or state.opening then
+    state.pending_file = file
+    return
+  end
+  state.opening = true
   focus(tab)
-  view:set_file(file, true)
+  run_open(view, state, tab, file)
+end
+
+local function when_ready(state, fn)
+  if state.ready then
+    return fn()
+  end
+  table.insert(state.queue, fn)
+end
+
+local function mark_ready(view, state, tab)
+  if state.ready then
+    return
+  end
+  state.ready = true
+  local queue = state.queue
+  state.queue = {}
+  vim.schedule(function()
+    for _, fn in ipairs(queue) do
+      local ok, err = pcall(fn)
+      if not ok then
+        logger:error("[clubmate] queued call: " .. tostring(err))
+      end
+    end
+    local file = state.pending_file
+    state.pending_file = nil
+    if file and reviews[tab] == state then
+      open_file(view, state, tab, file)
+    end
+  end)
 end
 
 local function watch(view, state)
@@ -150,10 +201,14 @@ local function watch(view, state)
       view.panel:render()
       view.panel:redraw()
     end
+    if view.files:len() == 0 then
+      mark_ready(view, state, view.tabpage)
+    end
     notify("files_updated")
     refresh_counts(view, state)
   end)
   view.emitter:on("file_open_post", function(_, entry)
+    mark_ready(view, state, view.tabpage)
     notify("file_open", entry.path)
   end)
   view.emitter:on("view_closed", function()
@@ -203,8 +258,12 @@ api.nvim_create_autocmd("User", {
   end,
 })
 
-function M.open(opts)
-  local args = { "-C" .. (vim.uv.fs_realpath(opts.cwd) or opts.cwd), "--untracked-scoped" }
+local function open(opts)
+  local cwd = opts.cwd and vim.uv.fs_realpath(opts.cwd)
+  if not cwd then
+    error("cwd does not exist: " .. tostring(opts.cwd), 0)
+  end
+  local args = { "-C" .. cwd, "--untracked-scoped" }
   if opts.base then
     table.insert(args, opts.base)
   end
@@ -216,14 +275,19 @@ function M.open(opts)
   end
   view:open()
   view.panel:close()
-  local state = { reviewed = {}, seen = setmetatable({}, { __mode = "k" }) }
+  local state = {
+    reviewed = {},
+    seen = setmetatable({}, { __mode = "k" }),
+    ready = false,
+    queue = {},
+  }
   reviews[view.tabpage] = state
   last_tab = view.tabpage
   watch(view, state)
   return view.tabpage
 end
 
-function M.entries(tab)
+local function entries(tab)
   local view, state = resolve(tab)
   if not view then
     return {}
@@ -246,18 +310,33 @@ function M.entries(tab)
   end, view.panel:ordered_file_list())
 end
 
-function M.select(path, tab)
-  local view, _, t = resolve(tab)
-  local file = view and find(view, path)
+local function select_path(path, tab)
+  local view, state, t = resolve(tab)
+  if not view then
+    return
+  end
+  local file = find(view, path)
   if file then
-    open_file(view, t, file)
+    open_file(view, state, t, file)
+  elseif not state.ready then
+    when_ready(state, function()
+      select_path(path, t)
+    end)
   end
 end
 
-function M.toggle_reviewed(path, tab)
-  local view, _, t = resolve(tab)
-  local file = view and find(view, path)
+local function toggle_reviewed(path, tab)
+  local view, state, t = resolve(tab)
+  if not view then
+    return nil
+  end
+  local file = find(view, path)
   if not file then
+    if not state.ready then
+      when_ready(state, function()
+        toggle_reviewed(path, t)
+      end)
+    end
     return nil
   end
   focus(t)
@@ -270,26 +349,32 @@ function M.toggle_reviewed(path, tab)
   return file.reviewed
 end
 
-function M.next_unreviewed(dir, tab)
-  local view, _, t = resolve(tab)
+local function next_unreviewed(dir, tab)
+  local view, state, t = resolve(tab)
   if not view then
     return nil
   end
   local files = view.panel:ordered_file_list()
   local n = #files
-  local cur = utils.vec_indexof(files, view.panel.cur_file)
+  if n == 0 and not state.ready then
+    when_ready(state, function()
+      next_unreviewed(dir, t)
+    end)
+    return nil
+  end
+  local cur = utils.vec_indexof(files, state.pending_file or view.panel.cur_file)
   local start = cur ~= -1 and cur or (dir > 0 and 0 or n + 1)
   for i = 1, n do
     local file = files[(start - 1 + i * dir) % n + 1]
     if not file.reviewed then
-      open_file(view, t, file)
+      open_file(view, state, t, file)
       return file.path
     end
   end
   return nil
 end
 
-function M.set_excludes(globs, tab)
+local function set_excludes(globs, tab)
   local view, state, t = resolve(tab)
   if not view then
     return
@@ -299,7 +384,7 @@ function M.set_excludes(globs, tab)
   view:set_path_args(exclude_specs(globs))
 end
 
-function M.set_panel(visible, tab)
+local function set_panel(visible, tab)
   local view, _, t = resolve(tab)
   if not view then
     return
@@ -312,7 +397,7 @@ function M.set_panel(visible, tab)
   end
 end
 
-function M.close(tab)
+local function close(tab)
   local view = resolve(tab)
   if view then
     view:close()
@@ -320,8 +405,45 @@ function M.close(tab)
   end
 end
 
-function M.subscribe(chan)
+local function subscribe(chan)
   subscribers[chan] = true
 end
+
+local function guard(name, fn)
+  return function(...)
+    local errors = {}
+    local notify = vim.notify
+    vim.notify = function(msg, level, opts)
+      if level == vim.log.levels.ERROR then
+        table.insert(errors, tostring(msg))
+        return
+      end
+      return notify(msg, level, opts)
+    end
+    local res = vim.F.pack_len(pcall(fn, ...))
+    vim.notify = notify
+    if not res[1] then
+      table.insert(errors, tostring(res[2]))
+    end
+    if #errors > 0 then
+      local msg = table.concat(errors, "\n")
+      logger:error("[clubmate] " .. name .. ": " .. msg)
+      if not res[1] or res[2] == nil then
+        return nil, msg
+      end
+    end
+    return unpack(res, 2, res.n)
+  end
+end
+
+M.open = guard("open", open)
+M.entries = guard("entries", entries)
+M.select = guard("select", select_path)
+M.toggle_reviewed = guard("toggle_reviewed", toggle_reviewed)
+M.next_unreviewed = guard("next_unreviewed", next_unreviewed)
+M.set_excludes = guard("set_excludes", set_excludes)
+M.set_panel = guard("set_panel", set_panel)
+M.close = guard("close", close)
+M.subscribe = guard("subscribe", subscribe)
 
 return M

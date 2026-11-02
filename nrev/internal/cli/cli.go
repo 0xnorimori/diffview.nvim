@@ -225,15 +225,15 @@ func runReviewed(args []string, stdout io.Writer) error {
 	}
 	fs := flag.NewFlagSet("reviewed", flag.ContinueOnError)
 	db := fs.String("db", "", "")
-	revRange := fs.String("rev-range", "", "")
+	contentID := fs.String("content-id", "", "")
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
-	if *revRange == "" {
-		return fmt.Errorf("--rev-range is required")
-	}
 	switch sub {
 	case "set", "unset":
+		if *contentID == "" {
+			return fmt.Errorf("--content-id is required")
+		}
 		rel, err := relToRepo(file, *db != "")
 		if err != nil {
 			return err
@@ -243,7 +243,7 @@ func runReviewed(args []string, stdout io.Writer) error {
 			return err
 		}
 		defer s.Close()
-		if err := s.SetReviewed(*revRange, rel, sub == "set"); err != nil {
+		if err := s.SetReviewed(rel, *contentID, sub == "set"); err != nil {
 			return err
 		}
 		_ = s.AutoGC()
@@ -261,12 +261,12 @@ func runReviewed(args []string, stdout io.Writer) error {
 			return err
 		}
 		defer s.Close()
-		files, err := s.ListReviewed(*revRange)
+		rows, err := s.ListReviewed()
 		if err != nil {
 			return err
 		}
-		for _, f := range files {
-			fmt.Fprintln(stdout, f)
+		for _, r := range rows {
+			fmt.Fprintf(stdout, "%s\t%s\n", r.File, r.ContentID)
 		}
 		return nil
 	default:

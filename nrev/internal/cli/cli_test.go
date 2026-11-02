@@ -73,15 +73,18 @@ func TestMarkdown(t *testing.T) {
 func TestReviewedCLI(t *testing.T) {
 	fixedClock(t)
 	db := filepath.Join(t.TempDir(), "review.db")
-	run("reviewed", "set", "a.go", "--db", db, "--rev-range", "abc")
-	run("reviewed", "set", "b.go", "--db", db, "--rev-range", "abc")
-	out, _, code := run("reviewed", "list", "--db", db, "--rev-range", "abc")
-	if code != 0 || out != "a.go\nb.go\n" {
+	run("reviewed", "set", "a.go", "--db", db, "--content-id", "x")
+	run("reviewed", "set", "b.go", "--db", db, "--content-id", "y")
+	out, _, code := run("reviewed", "list", "--db", db)
+	if code != 0 || out != "a.go\tx\nb.go\ty\n" {
 		t.Fatalf("reviewed list: %q", out)
 	}
-	run("reviewed", "unset", "a.go", "--db", db, "--rev-range", "abc")
-	if out, _, _ = run("reviewed", "list", "--db", db, "--rev-range", "abc"); out != "b.go\n" {
+	run("reviewed", "unset", "a.go", "--db", db, "--content-id", "x")
+	if out, _, _ = run("reviewed", "list", "--db", db); out != "b.go\ty\n" {
 		t.Fatalf("after unset: %q", out)
+	}
+	if _, errOut, code := run("reviewed", "set", "a.go", "--db", db); code == 0 || !strings.Contains(errOut, "--content-id is required") {
+		t.Fatalf("set without content id: code=%d err=%q", code, errOut)
 	}
 }
 

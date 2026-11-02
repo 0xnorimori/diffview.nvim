@@ -13,6 +13,7 @@ local FilePanel = lazy.access("diffview.scene.views.diff.file_panel", "FilePanel
 local PerfTimer = lazy.access("diffview.perf", "PerfTimer") ---@type PerfTimer|LazyModule
 local RevType = lazy.access("diffview.vcs.rev", "RevType") ---@type RevType|LazyModule
 local StandardView = lazy.access("diffview.scene.views.standard.standard_view", "StandardView") ---@type StandardView|LazyModule
+local classify = lazy.require("diffview.review.classify") ---@module "diffview.review.classify"
 local config = lazy.require("diffview.config") ---@module "diffview.config"
 local debounce = lazy.require("diffview.debounce") ---@module "diffview.debounce"
 local utils = lazy.require("diffview.utils") ---@module "diffview.utils"
@@ -541,6 +542,12 @@ DiffView.update_files = debounce.debounce_trailing(
     end
 
     FileEntry.update_index_stat(self.adapter, index_stat)
+    local all_files = {}
+    for _, file in self.files:iter() do
+      all_files[#all_files + 1] = file
+    end
+    await(async.wrap(classify.apply, 3)(self.adapter, all_files))
+    await(async.scheduler())
     local fold_state = self.panel:save_fold_state()
     local cursor_pos = self.panel:save_cursor_position()
     self.files:update_file_trees()
@@ -552,7 +559,14 @@ DiffView.update_files = debounce.debounce_trailing(
     self.panel:reconstrain_cursor()
     self.panel:restore_cursor_position(cursor_pos)
 
-    if utils.vec_indexof(self.panel:ordered_file_list(), self.panel.cur_file) == -1 then
+    local cur_kept = false
+    for _, file in self.files:iter() do
+      if file == self.panel.cur_file then
+        cur_kept = true
+        break
+      end
+    end
+    if not cur_kept then
       self.panel:set_cur_file(nil)
     end
 

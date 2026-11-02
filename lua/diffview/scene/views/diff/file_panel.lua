@@ -3,6 +3,7 @@ local oop = require("diffview.oop")
 local renderer = require("diffview.renderer")
 local utils = require("diffview.utils")
 local Panel = require("diffview.ui.panel").Panel
+local FileTree = require("diffview.ui.models.file_tree.file_tree").FileTree
 local api = vim.api
 local M = {}
 
@@ -22,6 +23,9 @@ local M = {}
 ---@field components CompStruct
 ---@field constrain_cursor function
 ---@field help_mapping string
+---@field hidden { tests: boolean, generated: boolean, reviewed: boolean }
+---@field visible { conflicting: FileEntry[], working: FileEntry[], staged: FileEntry[] }
+---@field visible_trees { conflicting: FileTree, working: FileTree, staged: FileTree }
 local FilePanel = oop.create_class("FilePanel", Panel)
 
 FilePanel.winopts = vim.tbl_extend("force", Panel.winopts, {
@@ -58,6 +62,12 @@ function FilePanel:init(adapter, files, path_args, rev_pretty_name)
   self.rev_pretty_name = rev_pretty_name
   self.listing_style = conf.file_panel.listing_style
   self.tree_options = conf.file_panel.tree_options
+  local filters = conf.file_panel.filters
+  self.hidden = {
+    tests = filters.tests.hidden,
+    generated = filters.generated.hidden,
+    reviewed = filters.reviewed.hidden,
+  }
 
   self:on_autocmd("BufNew", {
     callback = function()
@@ -85,31 +95,57 @@ function FilePanel:setup_buffer()
   if help_keymap then self.help_mapping = help_keymap[2] end
 end
 
+---@param file FileEntry
+---@return boolean
+function FilePanel:counted(file)
+  if file.review_kind == "test" then
+    return not self.hidden.tests
+  elseif file.review_kind == "generated" then
+    return not self.hidden.generated
+  end
+  return true
+end
+
+---@param file FileEntry
+---@return boolean
+function FilePanel:visible_file(file)
+  return self:counted(file) and not (self.hidden.reviewed and file.reviewed)
+end
+
 function FilePanel:update_components()
+  local fold_state = self:save_fold_state()
   local conflicting_files
   local working_files
   local staged_files
+
+  self.visible = {}
+  self.visible_trees = {}
+  for _, kind in ipairs({ "conflicting", "working", "staged" }) do
+    self.visible[kind] = vim.tbl_filter(function(file)
+      return self:visible_file(file)
+    end, self.files[kind])
+  end
 
   if self.listing_style == "list" then
     conflicting_files = { name = "files" }
     working_files = { name = "files" }
     staged_files = { name = "files" }
 
-    for _, file in ipairs(self.files.conflicting) do
+    for _, file in ipairs(self.visible.conflicting) do
       table.insert(conflicting_files, {
         name = "file",
         context = file,
       })
     end
 
-    for _, file in ipairs(self.files.working) do
+    for _, file in ipairs(self.visible.working) do
       table.insert(working_files, {
         name = "file",
         context = file,
       })
     end
 
-    for _, file in ipairs(self.files.staged) do
+    for _, file in ipairs(self.visible.staged) do
       table.insert(staged_files, {
         name = "file",
         context = file,
@@ -117,27 +153,28 @@ function FilePanel:update_components()
     end
 
   elseif self.listing_style == "tree" then
-    self.files.conflicting_tree:update_statuses()
-    self.files.working_tree:update_statuses()
-    self.files.staged_tree:update_statuses()
+    for _, kind in ipairs({ "conflicting", "working", "staged" }) do
+      self.visible_trees[kind] = FileTree(self.visible[kind])
+      self.visible_trees[kind]:update_statuses()
+    end
 
     conflicting_files = utils.tbl_merge(
       { name = "files" },
-      self.files.conflicting_tree:create_comp_schema({
+      self.visible_trees.conflicting:create_comp_schema({
         flatten_dirs = self.tree_options.flatten_dirs,
       })
     )
 
     working_files = utils.tbl_merge(
       { name = "files" },
-      self.files.working_tree:create_comp_schema({
+      self.visible_trees.working:create_comp_schema({
         flatten_dirs = self.tree_options.flatten_dirs,
       })
     )
 
     staged_files = utils.tbl_merge(
       { name = "files" },
-      self.files.staged_tree:create_comp_schema({
+      self.visible_trees.staged:create_comp_schema({
         flatten_dirs = self.tree_options.flatten_dirs,
       })
     )
@@ -169,7 +206,9 @@ function FilePanel:update_components()
       { name = "title" },
       { name = "entries" },
     },
+    { name = "hints" },
   })
+  self:restore_fold_state(fold_state)
 
   self.constrain_cursor = renderer.create_cursor_constraint({
     self.components.conflicting.files.comp,
@@ -180,19 +219,17 @@ end
 
 ---@return FileEntry[]
 function FilePanel:ordered_file_list()
+  if not self.visible then
+    return {}
+  end
+
   if self.listing_style == "list" then
-    local list = {}
-
-    for _, file in self.files:iter() do
-      list[#list + 1] = file
-    end
-
-    return list
+    return utils.vec_join(self.visible.conflicting, self.visible.working, self.visible.staged)
   else
     local nodes = utils.vec_join(
-      self.files.conflicting_tree.root:leaves(),
-      self.files.working_tree.root:leaves(),
-      self.files.staged_tree.root:leaves()
+      self.visible_trees.conflicting.root:leaves(),
+      self.visible_trees.working.root:leaves(),
+      self.visible_trees.staged.root:leaves()
     )
 
     return vim.tbl_map(function(node)
@@ -223,6 +260,9 @@ function FilePanel:prev_file()
   if i ~= -1 then
     self:set_cur_file(files[(i - vim.v.count1 - 1) % #files + 1])
     return self.cur_file
+  elseif #files > 0 then
+    self:set_cur_file(files[#files])
+    return self.cur_file
   end
 end
 
@@ -236,6 +276,9 @@ function FilePanel:next_file()
   local i = utils.vec_indexof(files, self.cur_file)
   if i ~= -1 then
     self:set_cur_file(files[(i + vim.v.count1 - 1) % #files + 1])
+    return self.cur_file
+  elseif #files > 0 then
+    self:set_cur_file(files[1])
     return self.cur_file
   end
 end
@@ -434,6 +477,66 @@ function FilePanel:restore_cursor_position(pos)
     local line = math.min(pos[1], line_count)
     pcall(api.nvim_win_set_cursor, self.winid, { line, pos[2] })
   end
+end
+
+---@param name "tests"|"generated"|"reviewed"
+function FilePanel:toggle_filter(name)
+  self.hidden[name] = not self.hidden[name]
+  self:rebuild()
+end
+
+function FilePanel:rebuild()
+  local cursor_pos = self:save_cursor_position()
+  self:update_components()
+  self:render()
+  self:redraw()
+  self:reconstrain_cursor()
+  self:restore_cursor_position(cursor_pos)
+end
+
+function FilePanel:refresh_review()
+  if self.hidden.reviewed then
+    self:rebuild()
+  else
+    self:render()
+    self:redraw()
+  end
+end
+
+---@return { reviewed: integer, total: integer, additions: integer, deletions: integer, comments: integer, tests: integer, generated: integer }
+function FilePanel:review_progress()
+  local p = { reviewed = 0, total = 0, additions = 0, deletions = 0, comments = 0, tests = 0, generated = 0 }
+  local paths = {}
+  for _, file in self.files:iter() do
+    local entry = paths[file.path]
+    if not entry then
+      entry = { kind = file.review_kind, counted = false, reviewed = true, comments = file.comments or 0 }
+      paths[file.path] = entry
+    end
+    if self:counted(file) then
+      entry.counted = true
+      entry.reviewed = entry.reviewed and file.reviewed
+      if file.stats and file.stats.additions then
+        p.additions = p.additions + file.stats.additions
+        p.deletions = p.deletions + file.stats.deletions
+      end
+    end
+  end
+  for _, entry in pairs(paths) do
+    if entry.kind == "test" then
+      p.tests = p.tests + 1
+    elseif entry.kind == "generated" then
+      p.generated = p.generated + 1
+    end
+    if entry.counted then
+      p.total = p.total + 1
+      p.comments = p.comments + entry.comments
+      if entry.reviewed then
+        p.reviewed = p.reviewed + 1
+      end
+    end
+  end
+  return p
 end
 
 function FilePanel:render()

@@ -6,26 +6,23 @@ import (
 	"time"
 )
 
-func TestReviewedRoundTrip(t *testing.T) {
+func TestReviewedVersions(t *testing.T) {
 	s, _ := testStore(t)
-	for _, f := range []string{"a.go", "b.go", "a.go"} {
-		if err := s.SetReviewed("base1", f, true); err != nil {
+	for _, id := range []string{"x", "y", "x"} {
+		if err := s.SetReviewed("a.go", id, true); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := s.SetReviewed("base2", "a.go", true); err != nil {
+	got, err := s.ListReviewed()
+	if err != nil || !reflect.DeepEqual(got, []Reviewed{{"a.go", "x"}, {"a.go", "y"}}) {
+		t.Fatalf("list: %v %v", err, got)
+	}
+	if err := s.SetReviewed("a.go", "x", false); err != nil {
 		t.Fatal(err)
 	}
-	files, err := s.ListReviewed("base1")
-	if err != nil || !reflect.DeepEqual(files, []string{"a.go", "b.go"}) {
-		t.Fatalf("list: %v %v", err, files)
-	}
-	if err := s.SetReviewed("base1", "a.go", false); err != nil {
-		t.Fatal(err)
-	}
-	files, _ = s.ListReviewed("base1")
-	if !reflect.DeepEqual(files, []string{"b.go"}) {
-		t.Fatalf("after unset: %v", files)
+	got, _ = s.ListReviewed()
+	if !reflect.DeepEqual(got, []Reviewed{{"a.go", "y"}}) {
+		t.Fatalf("after unset: %v", got)
 	}
 }
 
@@ -38,14 +35,11 @@ func TestPruneAndAutoGC(t *testing.T) {
 	if err := s.Resolve(rid, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetReviewed("touched", "a.go", true); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.SetReviewed("untouched", "b.go", true); err != nil {
+	if err := s.SetReviewed("a.go", "old", true); err != nil {
 		t.Fatal(err)
 	}
 	*clock = clock.Add(31 * 24 * time.Hour)
-	if _, err := s.ListReviewed("touched"); err != nil {
+	if err := s.SetReviewed("a.go", "fresh", true); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.AutoGC(); err != nil {
@@ -55,26 +49,12 @@ func TestPruneAndAutoGC(t *testing.T) {
 	if len(all) != 1 || all[0].Text != "stays open" {
 		t.Fatalf("open comment must survive, resolved must be pruned: %+v", all)
 	}
-	if n := countReviewed(t, s, "untouched"); n != 1 {
-		t.Fatalf("untouched only 31d old, must survive: %d", n)
-	}
 	*clock = clock.Add(30 * 24 * time.Hour)
 	if err := s.AutoGC(); err != nil {
 		t.Fatal(err)
 	}
-	if n := countReviewed(t, s, "untouched"); n != 0 {
-		t.Fatalf("untouched 61d old, must be pruned: %d", n)
+	got, _ := s.ListReviewed()
+	if !reflect.DeepEqual(got, []Reviewed{{"a.go", "fresh"}}) {
+		t.Fatalf("only the 61d old row must be pruned: %v", got)
 	}
-	if n := countReviewed(t, s, "touched"); n != 1 {
-		t.Fatalf("touched was refreshed by ListReviewed 30d ago, must survive: %d", n)
-	}
-}
-
-func countReviewed(t *testing.T, s *Store, revRange string) int {
-	t.Helper()
-	var n int
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM reviewed WHERE rev_range = ?", revRange).Scan(&n); err != nil {
-		t.Fatal(err)
-	}
-	return n
 }

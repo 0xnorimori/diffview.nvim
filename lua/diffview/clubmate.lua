@@ -412,11 +412,11 @@ local function set_reviewed(path, want, tab)
   end
   focus(t)
   file.reviewed = want
+  file.stale = false
   toggled_path = path
   api.nvim_exec_autocmds("User", { pattern = "DiffviewReviewedToggled" })
   toggled_path = nil
-  view.panel:render()
-  view.panel:redraw()
+  view.panel:refresh_review()
   return file.reviewed
 end
 

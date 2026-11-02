@@ -5,36 +5,11 @@ local eq = helpers.eq
 vim.env.GIT_CONFIG_GLOBAL = "/dev/null"
 vim.env.GIT_CONFIG_NOSYSTEM = "1"
 
-local nrev_bin = vim.fn.getcwd() .. "/bin/nrev"
-
-local function git(dir, ...)
-  local cmd = { "git", "-C", dir, "-c", "user.email=t@t", "-c", "user.name=t" }
-  return vim.trim(vim.fn.system(vim.list_extend(cmd, { ... })))
-end
-
-local function nrev(dir, ...)
-  local out = vim.system(vim.list_extend({ nrev_bin }, { ... }), { cwd = dir }):wait()
-  assert(out.code == 0, out.stderr)
-end
-
-local function wait_for(pred)
-  assert(vim.wait(5000, pred, 20), "condition not met in time")
-end
-
-local function make_repo()
-  local repo = vim.fn.tempname()
-  vim.fn.mkdir(repo, "p")
-  git(repo, "init", "-q")
-  vim.fn.writefile({ "package a", "func A() {}" }, repo .. "/a.go")
-  vim.fn.writefile({ "package a" }, repo .. "/a_test.go")
-  git(repo, "add", ".")
-  git(repo, "commit", "-q", "-m", "init")
-  vim.fn.writefile({ "package a", "func A() int { return 1 }", "func B() {}" }, repo .. "/a.go")
-  vim.fn.writefile({ "package a", "func TestA() {}" }, repo .. "/a_test.go")
-  vim.fn.writefile({ "package a" }, repo .. "/b_test.go")
-  vim.fn.writefile({ "one", "two", "three" }, repo .. "/new.txt")
-  return repo
-end
+local nrev_bin = helpers.nrev_bin
+local git = helpers.git
+local nrev = helpers.nrev
+local wait_for = helpers.wait_for
+local make_repo = helpers.make_repo
 
 local function capture(fn)
   local sent = {}
@@ -85,7 +60,10 @@ describe("diffview.clubmate", function()
 
   before_each(function()
     vim.cmd("runtime! plugin/diffview.lua")
-    require("diffview").setup({ use_icons = false })
+    require("diffview").setup({
+      use_icons = false,
+      file_panel = { filters = { tests = { hidden = false }, generated = { hidden = false } } },
+    })
     clubmate = require("diffview.clubmate")
     repo = make_repo()
     open_review()
@@ -350,12 +328,11 @@ describe("diffview.clubmate", function()
     eq({}, echoed)
   end)
 
-  local nrev_it = vim.fn.executable(nrev_bin) == 1 and it or pending
+  local nrev_it = helpers.nrev_it
 
   nrev_it("reflects nrev reviewed marks and open comment counts", function()
     clubmate.close(tab)
     require("nrev").setup({ bin = nrev_bin })
-    local head = git(repo, "rev-parse", "HEAD")
     local function comment(text)
       nrev(
         repo,
@@ -370,7 +347,7 @@ describe("diffview.clubmate", function()
         "--text", text
       )
     end
-    nrev(repo, "reviewed", "set", "a.go", "--rev-range", head)
+    nrev(repo, "reviewed", "set", "a.go", "--content-id", git(repo, "hash-object", "a.go"))
     comment("first")
 
     capture(function(sent)
@@ -397,7 +374,7 @@ describe("diffview.clubmate", function()
   nrev_it("restores persisted marks of files shown again after an exclude is lifted", function()
     clubmate.close(tab)
     require("nrev").setup({ bin = nrev_bin })
-    nrev(repo, "reviewed", "set", "a_test.go", "--rev-range", git(repo, "rev-parse", "HEAD"))
+    nrev(repo, "reviewed", "set", "a_test.go", "--content-id", git(repo, "hash-object", "a_test.go"))
 
     capture(function(sent)
       clubmate.subscribe(7)

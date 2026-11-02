@@ -164,3 +164,55 @@ func TestConcurrentOpenWaitsForLocks(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrateV1DropsReviewed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "review.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`
+CREATE TABLE comments (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  file        TEXT NOT NULL,
+  side        TEXT NOT NULL DEFAULT 'new' CHECK (side IN ('old','new')),
+  line_start  INTEGER NOT NULL,
+  line_end    INTEGER NOT NULL,
+  rev         TEXT NOT NULL,
+  line_text   TEXT NOT NULL,
+  type        TEXT NOT NULL CHECK (type IN ('issue','suggestion','question','note','praise')),
+  text        TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')),
+  resolution  TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+CREATE TABLE reviewed (rev_range TEXT NOT NULL, file TEXT NOT NULL, reviewed_at TEXT NOT NULL, PRIMARY KEY (rev_range, file));
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT INTO comments (file, line_start, line_end, rev, line_text, type, text, created_at, updated_at)
+  VALUES ('a.go', 1, 1, 'WORKING', 'x', 'note', 'kept', '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z');
+INSERT INTO reviewed VALUES ('abc', 'a.go', '2026-08-01T00:00:00Z');
+PRAGMA user_version = 1;
+`); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if got, err := s.ListReviewed(); err != nil || len(got) != 0 {
+		t.Fatalf("reviewed after migration: %v %v", err, got)
+	}
+	if cs, _ := s.List(ListFilter{Status: "all"}); len(cs) != 1 || cs[0].Text != "kept" {
+		t.Fatalf("comments after migration: %+v", cs)
+	}
+	var v int
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&v); err != nil || v != 2 {
+		t.Fatalf("user_version: %v %d", err, v)
+	}
+}

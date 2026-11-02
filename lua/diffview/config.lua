@@ -81,6 +81,11 @@ M.defaults = {
       width = 35,
       win_opts = {}
     },
+    filters = {
+      tests = { hidden = true, extend = {} },
+      generated = { hidden = true, extend = {} },
+      reviewed = { hidden = false },
+    },
   },
   file_history_panel = {
     log_options = {
@@ -191,6 +196,9 @@ M.defaults = {
       { "n", "za",             actions.toggle_fold,                    { desc = "Toggle fold" } },
       { "n", "zR",             actions.open_all_folds,                 { desc = "Expand all folds" } },
       { "n", "zM",             actions.close_all_folds,                { desc = "Collapse all folds" } },
+      { "n", "zt",             actions.toggle_tests,                   { desc = "Toggle test files" } },
+      { "n", "zg",             actions.toggle_generated,               { desc = "Toggle generated files" } },
+      { "n", "zr",             actions.toggle_hide_reviewed,           { desc = "Toggle reviewed files" } },
       { "n", "<c-b>",          actions.scroll_view(-0.25),             { desc = "Scroll the view up" } },
       { "n", "<c-f>",          actions.scroll_view(0.25),              { desc = "Scroll the view down" } },
       { "n", "<tab>",          actions.select_next_entry,              { desc = "Open the diff for the next file" } },

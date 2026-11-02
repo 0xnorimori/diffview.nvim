@@ -26,9 +26,7 @@ func (s *Store) Prune(resolvedTTL, reviewedTTL time.Duration) (PruneResult, erro
 	r.Comments, _ = res.RowsAffected()
 	cutR := s.now().UTC().Add(-reviewedTTL).Format(time.RFC3339)
 	res, err = s.db.Exec(
-		"DELETE FROM reviewed WHERE rev_range IN (SELECT rev_range FROM reviewed GROUP BY rev_range HAVING MAX(reviewed_at) < ?)",
-		cutR,
-	)
+		"DELETE FROM reviewed WHERE reviewed_at < ?", cutR)
 	if err != nil {
 		return r, err
 	}

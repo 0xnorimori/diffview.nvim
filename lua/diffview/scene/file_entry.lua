@@ -43,6 +43,10 @@ local fstat_cache = {}
 ---@field active boolean
 ---@field opened boolean
 ---@field reviewed boolean
+---@field stale boolean
+---@field content_id string?
+---@field comments integer
+---@field review_kind "test"|"generated"|"code"|nil
 local FileEntry = oop.create_class("FileEntry")
 
 ---@class FileEntry.init.Opt
@@ -77,6 +81,8 @@ function FileEntry:init(opt)
   self.active = false
   self.opened = false
   self.reviewed = false
+  self.stale = false
+  self.comments = 0
 end
 
 function FileEntry:destroy()

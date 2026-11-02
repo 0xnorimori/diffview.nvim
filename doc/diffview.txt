@@ -651,6 +651,31 @@ win_config                                      *diffview-config-win_config*
 <
 
 
+file_panel.filters                              *diffview-config-file_panel.filters*
+        Type: `table`
+        Default: >lua
+            filters = {
+              tests = { hidden = true, extend = {} },
+              generated = { hidden = true, extend = {} },
+              reviewed = { hidden = false },
+            }
+<
+        Which files the file panel lists when a view opens. `tests` and
+        `generated` files are hidden by default; the review progress in the
+        panel header counts every file these two filters do not hide.
+
+        A file is a test when its path matches a built-in test pattern
+        (`*_test.go`, `*Tests.swift`, `*_spec.lua`, `test/`, …), a pattern in
+        `tests.extend`, or has the `diffview-test` git attribute. A file is
+        generated when it is a lock file (`go.sum`, `*-lock.json`, …), matches
+        `generated.extend`, starts with a `// Code generated … DO NOT EDIT.`
+        line, or has the `linguist-generated` attribute. Generated wins over
+        test. A pattern without `/` matches the file name, one ending in `/`
+        any directory, any other the path from the repository root. >gitattributes
+            gen/**    linguist-generated
+            spec/**   diffview-test
+<
+
 log_options                                     *diffview-config-log_options*
         Type: `table`, Default: (see defaults)
 
@@ -1216,10 +1241,25 @@ toggle_fold                                     *diffview-actions-toggle_fold*
 
         Collapse / expand the fold of the subject.
 
+toggle_generated                                *diffview-actions-toggle_generated*
+        Contexts: `file_panel`
+
+        Show / hide generated files (|diffview-config-file_panel.filters|).
+
+toggle_hide_reviewed                            *diffview-actions-toggle_hide_reviewed*
+        Contexts: `file_panel`
+
+        Hide / show files marked reviewed. The progress count stays the same.
+
 toggle_stage_entry                              *diffview-actions-toggle_stage_entry*
         Contexts: `diff_view`, `file_panel`
 
         Stage / unstage the subject.
+
+toggle_tests                                    *diffview-actions-toggle_tests*
+        Contexts: `file_panel`
+
+        Show / hide test files (|diffview-config-file_panel.filters|).
 
 unstage_all                                     *diffview-actions-unstage_all*
         Contexts: `diff_view`, `file_panel`

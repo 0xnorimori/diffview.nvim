@@ -206,25 +206,19 @@ return function(view)
 
         if type(item.collapsed) == "boolean" then
           ---@cast item DirData
-          ---@type FileTree
-          local tree
-
-          if item.kind == "conflicting" then
-            tree = view.panel.files.conflicting_tree
-          elseif item.kind == "working" then
-            tree = view.panel.files.working_tree
-          else
-            tree = view.panel.files.staged_tree
-          end
+          ---@type FileTree?
+          local tree = view.panel.visible_trees[item.kind]
 
           ---@type Node
           local item_node
-          tree.root:deep_some(function(node, _, _)
-            if node == item._node then
-              item_node = node
-              return true
-            end
-          end)
+          if tree then
+            tree.root:deep_some(function(node, _, _)
+              if node == item._node then
+                item_node = node
+                return true
+              end
+            end)
+          end
 
           if item_node then
             local next_leaf = item_node:next_leaf()
@@ -401,17 +395,27 @@ return function(view)
                 new_state = not child.data.reviewed
               end
               child.data.reviewed = new_state
+              child.data.stale = false
             end
           end)
         end
       else
         item.reviewed = not item.reviewed
+        item.stale = false
       end
 
       vim.api.nvim_exec_autocmds("User", { pattern = "DiffviewReviewedToggled" })
 
-      view.panel:render()
-      view.panel:redraw()
+      view.panel:refresh_review()
+    end,
+    toggle_tests = function()
+      view.panel:toggle_filter("tests")
+    end,
+    toggle_generated = function()
+      view.panel:toggle_filter("generated")
+    end,
+    toggle_hide_reviewed = function()
+      view.panel:toggle_filter("reviewed")
     end,
     annotate_line = function()
       if view.panel:is_focused() then return end

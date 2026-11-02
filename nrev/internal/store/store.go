@@ -9,7 +9,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 var ErrNotFound = errors.New("comment not found")
 
@@ -113,17 +113,18 @@ CREATE TABLE IF NOT EXISTS comments (
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS reviewed (
-  rev_range   TEXT NOT NULL,
+DROP TABLE IF EXISTS reviewed;
+CREATE TABLE reviewed (
   file        TEXT NOT NULL,
+  content_id  TEXT NOT NULL,
   reviewed_at TEXT NOT NULL,
-  PRIMARY KEY (rev_range, file)
+  PRIMARY KEY (file, content_id)
 );
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 `); err != nil {
 		return err
 	}

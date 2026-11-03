@@ -1719,4 +1719,58 @@ ConflictCount                                   *diffview.ConflictCount*
             {conflicts} (table[])
                 List of all conflicts in the current file.
 
+==============================================================================
+
+HOST API                                        *diffview-clubmate*
+
+`require("diffview.clubmate")` lets a host (Clubmate) drive review tabs over
+RPC. `version` is 2. Every function takes an optional {tab} (tabpage handle);
+without it the current review tab, else the last opened one, is used.
+Functions return `nil, err` instead of echoing errors.
+
+open({opts})                                    *diffview-clubmate.open()*
+        Opens a review tab with the file panel hidden and returns its tabpage.
+        {opts}:
+            {cwd} (string)       Repository or worktree to diff.
+            {base} (string?)     Left side rev. Without {head} it is compared
+                                 with the working tree (editable), untracked
+                                 files under the path args included.
+            {head} (string?)     A rev: the view shows `base...head`, the
+                                 merge-base of both against {head}'s tip, both
+                                 sides read-only.
+            {labels} (table?)    `{ left, right }` overriding the side labels.
+            {excludes} (string[]?) Globs left out of the view.
+
+info({tab})                                     *diffview-clubmate.info()*
+        Returns `{ base, head, merge_base, editable, labels = { left, right } }`.
+        Default labels: `Before turn N` for a Clubmate checkpoint, else the
+        rev name or its short hash; `Working tree` without {head}.
+
+entries({tab})                                  *diffview-clubmate.entries()*
+        The files in panel order: `{ path, status, additions, deletions,
+        reviewed, stale, comments, category, kind, old_path }`. {stale} is a
+        file reviewed in another version, {comments} the open nrev comments,
+        {category} `code`, `test` or `generated`, {kind} `modified`, `new`,
+        `deleted` or `renamed` ({old_path} set for renames).
+
+comments({tab})                                 *diffview-clubmate.comments()*
+        All nrev comments of the view's worktree: `{ id, file, side,
+        line_start, line_end, type, text, status, line_text, rev }`.
+
+select({path}, {tab})                           *diffview-clubmate.select()*
+toggle_reviewed({path}, {tab})          *diffview-clubmate.toggle_reviewed()*
+set_reviewed({path}, {want}, {tab})        *diffview-clubmate.set_reviewed()*
+next_unreviewed({dir}, {tab})           *diffview-clubmate.next_unreviewed()*
+set_excludes({globs}, {tab})               *diffview-clubmate.set_excludes()*
+set_panel({visible}, {tab})                   *diffview-clubmate.set_panel()*
+close({tab})                                      *diffview-clubmate.close()*
+        Open a file, change reviewed marks, jump to the next file not yet
+        reviewed, change the excluded globs, show the file panel, close.
+
+subscribe({chan})                             *diffview-clubmate.subscribe()*
+        Sends `rpcnotify(chan, "clubmate", { event = "review", kind, path,
+        tab })` with {kind} one of `files_updated`, `file_open`, `reviewed`,
+        `reviewed_restored`, `comments` and `closed` (only when the user
+        closes the tab).
+
  vim:tw=78:ts=8:ft=help:norl:

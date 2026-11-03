@@ -4,12 +4,14 @@ local async = require("diffview.async")
 local lib = require("diffview.lib")
 local utils = require("diffview.utils")
 
+local RevType = require("diffview.vcs.rev").RevType
+
 local api = vim.api
 local logger = DiffviewGlobal.logger
 
 local M = {}
 
-M.version = 1
+M.version = 2
 
 local reviews = {}
 local subscribers = {}
@@ -63,8 +65,8 @@ local function hold()
   return release
 end
 
-local function notify(kind, path)
-  local payload = { event = "review", kind = kind, path = path }
+local function notify(kind, path, tab)
+  local payload = { event = "review", kind = kind, path = path, tab = tab }
   for chan in pairs(subscribers) do
     if not pcall(vim.rpcnotify, chan, "clubmate", payload) then
       subscribers[chan] = nil
@@ -129,11 +131,15 @@ local function line_count(path)
   return data:sub(-1) == "\n" and n or n + 1
 end
 
-local function count_cmd()
+local function nrev_cmd(status)
   local bin = vim.fn.executable(local_nrev) == 1 and local_nrev
     or vim.fn.executable("nrev") == 1 and "nrev"
     or nil
-  return bin and { bin, "list", "--json", "--status", "open" }
+  return bin and { bin, "list", "--json", "--status", status }
+end
+
+local function count_cmd()
+  return nrev_cmd("open")
 end
 
 local function parse_counts(out)
@@ -175,7 +181,7 @@ local function refresh_counts(view, state)
       local counts = parse_counts(out)
       if not vim.deep_equal(counts, state.counts) then
         state.counts = counts
-        notify("comments")
+        notify("comments", nil, view.tabpage)
       end
     end)
   end)
@@ -257,12 +263,12 @@ local function watch(view, state)
     if view.files:len() == 0 then
       mark_ready(view, state, view.tabpage)
     end
-    notify("files_updated")
+    notify("files_updated", nil, view.tabpage)
     refresh_counts(view, state)
   end)
   view.emitter:on("file_open_post", function(_, entry)
     mark_ready(view, state, view.tabpage)
-    notify("file_open", entry.path)
+    notify("file_open", entry.path, view.tabpage)
   end)
   view.emitter:on("view_closed", function()
     state.release_open()
@@ -270,7 +276,7 @@ local function watch(view, state)
     if last_tab == view.tabpage then
       last_tab = nil
       if not state.closing then
-        notify("closed")
+        notify("closed", nil, view.tabpage)
       end
     end
   end)
@@ -282,10 +288,10 @@ api.nvim_create_autocmd("User", {
   group = group,
   pattern = "DiffviewReviewedToggled",
   callback = function()
-    local view, state = resolve(api.nvim_get_current_tabpage())
+    local view, state, tab = resolve(api.nvim_get_current_tabpage())
     if view then
       snapshot_reviewed(view, state)
-      notify("reviewed", toggled_path)
+      notify("reviewed", toggled_path, tab)
     end
   end,
 })
@@ -294,10 +300,10 @@ api.nvim_create_autocmd("User", {
   group = group,
   pattern = "NrevReviewedRestored",
   callback = function(ev)
-    local view, state = resolve(ev.data and ev.data.tabpage)
+    local view, state, tab = resolve(ev.data and ev.data.tabpage)
     if view then
       snapshot_reviewed(view, state)
-      notify("reviewed_restored")
+      notify("reviewed_restored", nil, tab)
     end
   end,
 })
@@ -315,14 +321,52 @@ api.nvim_create_autocmd("User", {
   end,
 })
 
+local function git_out(cwd, args)
+  local ok, out = pcall(function()
+    return vim.system(vim.list_extend({ "git", "-C", cwd }, args), { text = true }):wait(2000)
+  end)
+  if ok and out.code == 0 then
+    return vim.trim(out.stdout)
+  end
+end
+
+local function is_ref(rev)
+  return rev ~= nil and not rev:match("^%x+$")
+end
+
+local function checkpoint_turn(cwd, commit)
+  local subject = commit and git_out(cwd, { "log", "-1", "--format=%s", commit })
+  return subject and (subject:match("^clubmate checkpoint %S+ turn (%d+)$"))
+end
+
+local function side_labels(cwd, opts, left)
+  local labels = opts.labels or {}
+  local turn = checkpoint_turn(cwd, left.commit)
+  local function short(rev)
+    return git_out(cwd, { "rev-parse", "--short=7", rev }) or rev
+  end
+  local default_left = turn and ("Before turn " .. turn)
+    or (is_ref(opts.base) and opts.base)
+    or short(left.commit)
+  local default_right = not opts.head and "Working tree"
+    or (is_ref(opts.head) and opts.head)
+    or short(opts.head)
+  return { left = labels.left or default_left, right = labels.right or default_right }, turn
+end
+
 local function open(opts)
   local cwd = opts.cwd and vim.uv.fs_realpath(opts.cwd)
   if not cwd then
     error("cwd does not exist: " .. tostring(opts.cwd), 0)
   end
-  local args = { "-C" .. vim.fn.fnameescape(cwd), "--untracked-scoped" }
-  if opts.base then
-    table.insert(args, opts.base)
+  local args = { "-C" .. vim.fn.fnameescape(cwd) }
+  if opts.head then
+    table.insert(args, vim.fn.fnameescape((opts.base or "HEAD") .. "..." .. opts.head))
+  else
+    table.insert(args, "--untracked-scoped")
+    if opts.base then
+      table.insert(args, opts.base)
+    end
   end
   table.insert(args, "--")
   vim.list_extend(args, exclude_specs(opts.excludes, true))
@@ -339,17 +383,41 @@ local function open(opts)
     release()
     error(err, 0)
   end
+  local top = view.adapter.ctx.toplevel
+  local labels, turn = side_labels(top, opts, view.left)
   local state = {
     reviewed = {},
     seen = setmetatable({}, { __mode = "k" }),
     ready = false,
     queue = {},
     release_open = release,
+    base = opts.base,
+    head = opts.head,
+    labels = labels,
+    turn = turn,
+    merge_base = opts.head and view.left.commit
+      or (view.left.commit and git_out(top, { "merge-base", view.left.commit, "HEAD" })),
   }
   reviews[view.tabpage] = state
   last_tab = view.tabpage
   watch(view, state)
   return view.tabpage
+end
+
+local kinds = { A = "new", ["?"] = "new", D = "deleted", R = "renamed" }
+
+local function info(tab)
+  local view, state = resolve(tab)
+  if not view then
+    return nil
+  end
+  return {
+    base = state.base,
+    head = state.head,
+    merge_base = state.merge_base,
+    editable = view.right.type == RevType.LOCAL,
+    labels = vim.deepcopy(state.labels),
+  }
 end
 
 local function entries(tab)
@@ -364,15 +432,47 @@ local function entries(tab)
     if not additions and file.status == "?" then
       additions = line_count(file.absolute_path)
     end
+    local kind = kinds[file.status] or "modified"
     return {
       path = file.path,
       status = file.status,
       additions = additions or 0,
       deletions = stats.deletions or 0,
       reviewed = file.reviewed,
+      stale = file.stale or false,
       comments = state.counts[file.path] or 0,
+      category = file.review_kind or "code",
+      kind = kind,
+      old_path = kind == "renamed" and file.oldpath or nil,
     }
   end, view.panel:ordered_file_list())
+end
+
+local comment_fields = { "id", "file", "side", "line_start", "line_end", "type", "text", "status", "line_text", "rev" }
+
+local function comments(tab)
+  local view = resolve(tab)
+  local cmd = view and nrev_cmd("all")
+  if not cmd then
+    return {}
+  end
+  local ok, out = pcall(function()
+    return vim.system(cmd, { cwd = view.adapter.ctx.toplevel, text = true }):wait(2000)
+  end)
+  if not ok or out.code ~= 0 or not out.stdout or out.stdout == "" then
+    return {}
+  end
+  local decoded, rows = pcall(vim.json.decode, out.stdout)
+  if not decoded or type(rows) ~= "table" then
+    return {}
+  end
+  return vim.tbl_map(function(c)
+    local row = {}
+    for _, field in ipairs(comment_fields) do
+      row[field] = c[field]
+    end
+    return row
+  end, rows)
 end
 
 local function select_path(path, tab)
@@ -516,7 +616,9 @@ local function guard(name, fn)
 end
 
 M.open = guard("open", open)
+M.info = guard("info", info)
 M.entries = guard("entries", entries)
+M.comments = guard("comments", comments)
 M.select = guard("select", select_path)
 M.toggle_reviewed = guard("toggle_reviewed", toggle_reviewed)
 M.set_reviewed = guard("set_reviewed", set_reviewed)

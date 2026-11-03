@@ -24,8 +24,8 @@ local function capture(fn)
   end
 end
 
-local function was_sent(sent, kind, path)
-  local expected = { 7, "clubmate", { event = "review", kind = kind, path = path } }
+local function was_sent(sent, kind, path, tab)
+  local expected = { 7, "clubmate", { event = "review", kind = kind, path = path, tab = tab } }
   return vim.tbl_contains(sent, function(v)
     return vim.deep_equal(v, expected)
   end, { predicate = true })
@@ -73,8 +73,8 @@ describe("diffview.clubmate", function()
     clubmate.close(tab)
   end)
 
-  it("lists modified and untracked entries with stats against a base", function()
-    eq(1, clubmate.version)
+  it("lists modified and untracked entries with stats, category and kind against a base", function()
+    eq(2, clubmate.version)
     eq({
       {
         path = "a.go",
@@ -82,7 +82,10 @@ describe("diffview.clubmate", function()
         additions = 2,
         deletions = 1,
         reviewed = false,
+        stale = false,
         comments = 0,
+        category = "code",
+        kind = "modified",
       },
       {
         path = "a_test.go",
@@ -90,7 +93,10 @@ describe("diffview.clubmate", function()
         additions = 1,
         deletions = 0,
         reviewed = false,
+        stale = false,
         comments = 0,
+        category = "test",
+        kind = "modified",
       },
       {
         path = "b_test.go",
@@ -98,7 +104,10 @@ describe("diffview.clubmate", function()
         additions = 1,
         deletions = 0,
         reviewed = false,
+        stale = false,
         comments = 0,
+        category = "test",
+        kind = "new",
       },
       {
         path = "new.txt",
@@ -106,9 +115,65 @@ describe("diffview.clubmate", function()
         additions = 3,
         deletions = 0,
         reviewed = false,
+        stale = false,
         comments = 0,
+        category = "code",
+        kind = "new",
       },
     }, clubmate.entries(tab))
+  end)
+
+  it("opens a branch tip read-only", function()
+    clubmate.close(tab)
+    git(repo, "add", "a.go")
+    local tree = git(repo, "write-tree")
+    local base = git(repo, "rev-parse", "HEAD")
+    git(repo, "branch", "feat", git(repo, "commit-tree", tree, "-p", "HEAD", "-m", "feat"))
+    git(repo, "reset", "-q")
+
+    tab = clubmate.open({ cwd = repo, base = "HEAD", head = "feat" })
+    wait_for(function()
+      return opened(view(), "a.go")
+    end)
+
+    eq({ "a.go" }, vim.tbl_map(function(e)
+      return e.path
+    end, clubmate.entries(tab)))
+    local info = clubmate.info(tab)
+    eq(false, info.editable)
+    eq("HEAD", info.base)
+    eq("feat", info.head)
+    eq(base, info.merge_base)
+    eq({ left = "HEAD", right = "feat" }, info.labels)
+  end)
+
+  it("reports the working tree as editable with label overrides", function()
+    clubmate.close(tab)
+    tab = clubmate.open({ cwd = repo, base = "HEAD", labels = { left = "Before turn 3" } })
+    wait_for(function()
+      return opened(view(), "a.go")
+    end)
+    local info = clubmate.info(tab)
+    eq(true, info.editable)
+    eq(nil, info.head)
+    eq({ left = "Before turn 3", right = "Working tree" }, info.labels)
+  end)
+
+  it("reports renames and deletions with their kind", function()
+    clubmate.close(tab)
+    vim.fn.writefile({ "1", "2", "3", "4", "5", "6", "7", "8" }, repo .. "/lines.txt")
+    git(repo, "add", "lines.txt")
+    git(repo, "commit", "-q", "-m", "lines")
+    git(repo, "mv", "lines.txt", "moved.txt")
+    git(repo, "rm", "-q", "--cached", "a.go")
+    vim.fn.delete(repo .. "/a.go")
+    tab = clubmate.open({ cwd = repo, base = "HEAD" })
+    wait_for(function()
+      return entry("moved.txt") ~= nil and view().cur_entry ~= nil and view().cur_entry.opened
+    end)
+    eq("renamed", entry("moved.txt").kind)
+    eq("lines.txt", entry("moved.txt").old_path)
+    eq("deleted", entry("a.go").kind)
   end)
 
   it("keeps plain DiffviewOpen against a rev free of untracked files", function()
@@ -236,7 +301,7 @@ describe("diffview.clubmate", function()
     capture(function(sent)
       clubmate.subscribe(7)
       clubmate.toggle_reviewed("new.txt", tab)
-      assert.is_true(was_sent(sent, "reviewed", "new.txt"))
+      assert.is_true(was_sent(sent, "reviewed", "new.txt", tab))
     end)
   end)
 
@@ -293,11 +358,11 @@ describe("diffview.clubmate", function()
     capture(function(sent)
       clubmate.subscribe(7)
       clubmate.close(tab)
-      assert.is_false(was_sent(sent, "closed"))
+      assert.is_false(was_sent(sent, "closed", nil, tab))
 
       open_review()
       vim.cmd("DiffviewClose")
-      assert.is_true(was_sent(sent, "closed"))
+      assert.is_true(was_sent(sent, "closed", nil, tab))
     end)
   end)
 
@@ -354,7 +419,7 @@ describe("diffview.clubmate", function()
       clubmate.subscribe(7)
       open_review()
       wait_for(function()
-        return was_sent(sent, "reviewed_restored")
+        return was_sent(sent, "reviewed_restored", nil, tab)
       end)
       eq(true, entry("a.go").reviewed)
       eq(1, entry("a.go").comments)
@@ -365,7 +430,7 @@ describe("diffview.clubmate", function()
       comment("second")
       vim.api.nvim_exec_autocmds("User", { pattern = "NrevCommentsChanged" })
       wait_for(function()
-        return was_sent(sent, "comments")
+        return was_sent(sent, "comments", nil, tab)
       end)
       eq(2, entry("a.go").comments)
     end)
@@ -380,7 +445,7 @@ describe("diffview.clubmate", function()
       clubmate.subscribe(7)
       tab = clubmate.open({ cwd = repo, base = "HEAD", excludes = { "*_test.go" } })
       wait_for(function()
-        return was_sent(sent, "reviewed_restored")
+        return was_sent(sent, "reviewed_restored", nil, tab)
       end)
       eq(nil, entry("a_test.go"))
 
@@ -388,6 +453,52 @@ describe("diffview.clubmate", function()
       wait_for(function()
         local e = entry("a_test.go")
         return e ~= nil and e.reviewed
+      end)
+    end)
+  end)
+
+  nrev_it("comments lists nrev rows", function()
+    clubmate.close(tab)
+    require("nrev").setup({ bin = nrev_bin })
+    nrev(
+      repo,
+      "add",
+      "--file", "a.go",
+      "--line-start", "2",
+      "--line-end", "3",
+      "--side", "new",
+      "--rev", "WORKING",
+      "--line-text", "func A() int { return 1 }",
+      "--type", "issue",
+      "--text", "why one"
+    )
+    open_review()
+    local rows = clubmate.comments(tab)
+    eq(1, #rows)
+    local c = rows[1]
+    eq({ "a.go", "new", 2, 3, "issue", "why one", "open", "func A() int { return 1 }", "WORKING" },
+      { c.file, c.side, c.line_start, c.line_end, c.type, c.text, c.status, c.line_text, c.rev })
+    assert.is_number(c.id)
+  end)
+
+  nrev_it("marks a file changed after it was reviewed as stale", function()
+    clubmate.close(tab)
+    require("nrev").setup({ bin = nrev_bin })
+    capture(function(sent)
+      clubmate.subscribe(7)
+      open_review()
+      wait_for(function()
+        return was_sent(sent, "reviewed_restored", nil, tab)
+      end)
+      clubmate.set_reviewed("a.go", true, tab)
+      wait_for(function()
+        return nrev(repo, "reviewed", "list"):find("a.go", 1, true) ~= nil
+      end)
+      vim.fn.writefile({ "package a", "func A() int { return 2 }" }, repo .. "/a.go")
+      view():update_files()
+      wait_for(function()
+        local e = entry("a.go")
+        return e.stale and not e.reviewed
       end)
     end)
   end)

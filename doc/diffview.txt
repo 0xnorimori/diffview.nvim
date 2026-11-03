@@ -1779,4 +1779,8 @@ line number accented, and each winbar reads label, tag, path, where only the
 path truncates. Tags: `checkpoint <sha>`, `merge-base <sha>`, `editable`,
 `read-only`, `new file · N lines`, `did not exist` and `deleted`.
 
+In every diff view a new file keeps two panes: the left one is ╱ filler that
+reads "New file — nothing before <left label>" and every line on the right is
+added. A deleted file mirrors it with "Deleted in <right label>".
+
  vim:tw=78:ts=8:ft=help:norl:

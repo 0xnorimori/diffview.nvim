@@ -459,6 +459,7 @@ M.hl_links = {
   WinBarTagAdded = "diffAdded",
   WinBarTagDeleted = "diffRemoved",
   WinBarPath = "Normal",
+  FillMessage = "Comment",
   Annotation = "DiagnosticSignWarn",
   AnnotationText = "DiagnosticVirtualTextWarn",
   FolderName = "Directory",

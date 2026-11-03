@@ -5,6 +5,7 @@ local lib = require("diffview.lib")
 local utils = require("diffview.utils")
 
 local RevType = require("diffview.vcs.rev").RevType
+local fill = require("diffview.review.fill")
 
 local api = vim.api
 local logger = DiffviewGlobal.logger
@@ -208,8 +209,15 @@ local function short(commit)
   return commit and commit:sub(1, 7) or ""
 end
 
-local function side_tag(view, state, symbol)
+local tag_hls = { added = "DiffviewWinBarTagAdded", deleted = "DiffviewWinBarTagDeleted" }
+
+local function side_tag(view, state, symbol, win)
+  local status = view.cur_entry and view.cur_entry.status
+  local new, deleted = status == "A" or status == "?", status == "D"
   if symbol == "a" then
+    if new then
+      return "did not exist"
+    end
     if state.turn then
       return "checkpoint " .. short(view.left.commit)
     end
@@ -218,13 +226,19 @@ local function side_tag(view, state, symbol)
     end
     return nil
   end
+  if new then
+    return ("new file · %d lines"):format(api.nvim_buf_line_count(api.nvim_win_get_buf(win.id))), "added"
+  end
+  if deleted then
+    return "deleted", "deleted"
+  end
   return view.right.type == RevType.LOCAL and "editable" or "read-only"
 end
 
-local function winbar(label, tag, path)
+local function winbar(label, path, tag, tone)
   local parts = { "%#DiffviewWinBarLabel# ", esc(label), " " }
   if tag then
-    vim.list_extend(parts, { "%#DiffviewWinBarTag#", esc(tag), " " })
+    vim.list_extend(parts, { "%#" .. (tag_hls[tone] or "DiffviewWinBarTag") .. "#", esc(tag), " " })
   end
   vim.list_extend(parts, { "%#DiffviewWinBarPath#%<", esc(path) })
   return table.concat(parts)
@@ -233,13 +247,15 @@ end
 local profile = { number = true, relativenumber = false, cursorline = true, cursorlineopt = "number" }
 
 local function decorate(view, state)
+  fill.apply(view)
   local layout = view.cur_layout
   for _, win in ipairs(layout and layout.windows or {}) do
     if win:is_valid() and win.file then
       local symbol = win.file.symbol
       local label = symbol == "a" and state.labels.left or state.labels.right
       utils.set_local(win.id, profile)
-      vim.wo[win.id].winbar = winbar(label, side_tag(view, state, symbol), win.file.path)
+      local path = win.file.path or (view.cur_entry and view.cur_entry.path) or ""
+      vim.wo[win.id].winbar = winbar(label, path, side_tag(view, state, symbol, win))
     end
   end
 end
@@ -324,8 +340,8 @@ local function watch(view, state)
     refresh_counts(view, state)
   end)
   view.emitter:on("file_open_post", function(_, entry)
-    decorate(view, state)
     mark_ready(view, state, view.tabpage)
+    decorate(view, state)
     notify("file_open", entry.path, view.tabpage)
   end)
   view.emitter:on("view_closed", function()
@@ -411,7 +427,8 @@ local function side_labels(cwd, opts, left)
   end
   local default_left = turn and ("Before turn " .. turn)
     or (is_ref(opts.base) and opts.base)
-    or short(left.commit)
+    or (left.commit and short(left.commit))
+    or "Index"
   local default_right = not opts.head and "Working tree"
     or (is_ref(opts.head) and opts.head)
     or short(opts.head)
@@ -443,6 +460,7 @@ local function open(opts)
   local merge_base = opts.head and view.left.commit
     or (view.left.commit and git_out(top, { "merge-base", view.left.commit, "HEAD" }))
   local tip = not opts.head and git_out(top, { "rev-parse", "HEAD" }) or nil
+  view.review_labels = labels
   local release = hold()
   local ok, err = pcall(function()
     view:open()

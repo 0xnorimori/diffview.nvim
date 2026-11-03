@@ -99,4 +99,76 @@ describe("diffview.clubmate review profile", function()
     eq("main merge-base " .. base:sub(1, 7) .. " %<a.go", vim.trim(bar_text(layout.a.id)))
     eq("feat read-only %<a.go", vim.trim(bar_text(layout.b.id)))
   end)
+
+  local function select(path)
+    clubmate.select(path, tab)
+    wait_for(function()
+      local cur = view().cur_entry
+      return cur and cur.path == path and cur.opened
+    end)
+  end
+
+  local function diff_hl(win)
+    local out = {}
+    vim.api.nvim_win_call(win, function()
+      for i = 1, vim.api.nvim_buf_line_count(0) do
+        out[i] = vim.fn.synIDattr(vim.fn.diff_hlID(i, 1), "name")
+      end
+    end)
+    return out
+  end
+
+  local function message(win)
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(vim.api.nvim_win_get_buf(win), -1, 0, -1, { details = true })) do
+      if m[4].virt_text then
+        return vim.trim(m[4].virt_text[1][1])
+      end
+    end
+  end
+
+  it("new file shows filler on the left", function()
+    clubmate.close(tab)
+    tab = clubmate.open({ cwd = repo, base = "HEAD", labels = { left = "Before turn 3" } })
+    wait_for(function()
+      return opened(view(), "a.go")
+    end)
+    select("new.txt")
+    local layout = view().cur_layout
+    local left, right = layout.a.id, layout.b.id
+    eq("New file — nothing before turn 3", message(left))
+    assert.is_truthy(vim.wo[left].fillchars:find("diff:╱", 1, true))
+    eq({ "DiffAdd", "DiffAdd", "DiffAdd" }, diff_hl(right))
+    eq("Before turn 3 did not exist %<new.txt", vim.trim(bar_text(left)))
+    eq("Working tree new file · 3 lines %<new.txt", vim.trim(bar_text(right)))
+  end)
+
+  it("deleted file mirrors it", function()
+    clubmate.close(tab)
+    vim.fn.delete(repo .. "/a.go")
+    tab = clubmate.open({ cwd = repo, base = "HEAD" })
+    wait_for(function()
+      return opened(view(), "a.go")
+    end)
+    local layout = view().cur_layout
+    local left, right = layout.a.id, layout.b.id
+    eq("Deleted in the working tree", message(right))
+    eq({ "DiffAdd", "DiffAdd" }, diff_hl(left))
+    eq("Working tree deleted %<a.go", vim.trim(bar_text(right)))
+  end)
+
+  it("keeps the filler message out of other review tabs", function()
+    local first = tab
+    select("new.txt")
+    local first_left = view().cur_layout.a.id
+    tab = clubmate.open({ cwd = repo, base = "HEAD" })
+    wait_for(function()
+      local cur = view().cur_entry
+      return cur ~= nil and cur.opened
+    end)
+    select("a.go")
+    eq(nil, message(view().cur_layout.a.id))
+    eq("New file — nothing before HEAD", message(first_left))
+    clubmate.close(first)
+  end)
 end)
+

@@ -16,6 +16,7 @@ local StandardView = lazy.access("diffview.scene.views.standard.standard_view", 
 local classify = lazy.require("diffview.review.classify") ---@module "diffview.review.classify"
 local config = lazy.require("diffview.config") ---@module "diffview.config"
 local debounce = lazy.require("diffview.debounce") ---@module "diffview.debounce"
+local fill = lazy.require("diffview.review.fill") ---@module "diffview.review.fill"
 local utils = lazy.require("diffview.utils") ---@module "diffview.utils"
 local vcs_utils = lazy.require("diffview.vcs.utils") ---@module "diffview.vcs.utils"
 local GitAdapter = lazy.access("diffview.vcs.adapters.git", "GitAdapter") ---@type GitAdapter|LazyModule
@@ -142,6 +143,7 @@ end
 ---@param old_entry FileEntry
 ---@diagnostic disable-next-line: unused-local
 function DiffView:file_open_post(e, new_entry, old_entry)
+  fill.apply(self)
   if new_entry.layout:is_nulled() then return end
   self:apply_annot_extmarks(new_entry)
   if new_entry.kind == "conflicting" then

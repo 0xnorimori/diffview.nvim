@@ -13,7 +13,7 @@ local logger = DiffviewGlobal.logger
 
 local M = {}
 
-M.version = 2
+M.version = 3
 
 local reviews = {}
 local subscribers = {}
@@ -502,7 +502,6 @@ local function open(opts)
   local release = hold()
   local ok, err = pcall(function()
     view:open()
-    view.panel:close()
   end)
   if not ok then
     release()
@@ -520,6 +519,14 @@ local function open(opts)
     turn = turn,
     merge_base = merge_base,
     tip = tip,
+    meta = {},
+  }
+  local tabpage = view.tabpage
+  view.panel.host = {
+    meta = state.meta,
+    send = function()
+      notify("send", nil, tabpage)
+    end,
   }
   reviews[view.tabpage] = state
   last_tab = view.tabpage
@@ -653,24 +660,49 @@ local function next_unreviewed(dir, tab)
   if not view then
     return nil
   end
-  local files = view.panel:ordered_file_list()
-  local n = #files
-  if n == 0 and not state.ready then
+  if #view.panel:ordered_file_list() == 0 and not state.ready then
     when_ready(state, function()
       next_unreviewed(dir, t)
     end)
     return nil
   end
-  local cur = utils.vec_indexof(files, state.pending_file or view.panel.cur_file)
-  local start = cur ~= -1 and cur or (dir > 0 and 0 or n + 1)
-  for i = 1, n do
-    local file = files[(start - 1 + i * dir) % n + 1]
-    if not file.reviewed then
-      open_file(view, state, t, file)
-      return file.path
-    end
+  local file = view.panel:next_unreviewed(dir, state.pending_file or view.panel.cur_file)
+  if file then
+    open_file(view, state, t, file)
+    return file.path
   end
   return nil
+end
+
+local function redraw_panel(view)
+  view.panel:render()
+  view.panel:redraw()
+end
+
+local function set_meta(tab, meta)
+  local view, state = resolve(tab)
+  if not view then
+    return
+  end
+  meta = meta or {}
+  state.meta.subtitle = meta.subtitle
+  state.meta.recipient = meta.recipient
+  state.meta.sent = meta.sent
+  redraw_panel(view)
+end
+
+local function filters(tab)
+  local view = resolve(tab)
+  return view and view.panel:filters() or nil
+end
+
+local function set_filter(name, shown, tab)
+  local view = resolve(tab)
+  if not view then
+    return
+  end
+  view.panel:set_filter(name, not shown)
+  return view.panel:filters()
 end
 
 local function set_excludes(globs, tab)
@@ -762,6 +794,9 @@ M.toggle_reviewed = guard("toggle_reviewed", toggle_reviewed)
 M.set_reviewed = guard("set_reviewed", set_reviewed)
 M.next_unreviewed = guard("next_unreviewed", next_unreviewed)
 M.set_excludes = guard("set_excludes", set_excludes)
+M.set_meta = guard("set_meta", set_meta)
+M.filters = guard("filters", filters)
+M.set_filter = guard("set_filter", set_filter)
 M.set_panel = guard("set_panel", set_panel)
 M.set_layout = guard("set_layout", set_layout)
 M.close = guard("close", close)

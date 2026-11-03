@@ -138,6 +138,24 @@ return function(view)
     select_next_entry = function()
       view:next_file(true)
     end,
+    select_next_unreviewed = function()
+      local file = view.panel:next_unreviewed(1, view.cur_entry)
+      if file then
+        view:set_file(file, false, true)
+      end
+    end,
+    select_prev_unreviewed = function()
+      local file = view.panel:next_unreviewed(-1, view.cur_entry)
+      if file then
+        view:set_file(file, false, true)
+      end
+    end,
+    send_review = function()
+      local host = view.panel.host
+      if host and host.send then
+        host.send()
+      end
+    end,
     select_prev_entry = function()
       view:prev_file(true)
     end,
@@ -407,6 +425,9 @@ return function(view)
       vim.api.nvim_exec_autocmds("User", { pattern = "DiffviewReviewedToggled" })
 
       view.panel:refresh_review()
+    end,
+    toggle_code = function()
+      view.panel:toggle_filter("code")
     end,
     toggle_tests = function()
       view.panel:toggle_filter("tests")

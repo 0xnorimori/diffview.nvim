@@ -1256,6 +1256,24 @@ toggle_stage_entry                              *diffview-actions-toggle_stage_e
 
         Stage / unstage the subject.
 
+toggle_code                                     *diffview-actions-toggle_code*
+        Contexts: `file_panel`
+
+        Show / hide code files: everything that is neither a test nor
+        generated.
+
+select_next_unreviewed                *diffview-actions-select_next_unreviewed*
+select_prev_unreviewed                *diffview-actions-select_prev_unreviewed*
+        Contexts: `view`, `file_panel`
+
+        Open the next / previous shown file not marked reviewed, wrapping.
+
+send_review                                      *diffview-actions-send_review*
+        Contexts: `file_panel`
+
+        Hand the review to the host: a review opened by
+        |diffview-clubmate.open()| sends the `send` event.
+
 toggle_tests                                    *diffview-actions-toggle_tests*
         Contexts: `file_panel`
 
@@ -1724,12 +1742,12 @@ ConflictCount                                   *diffview.ConflictCount*
 HOST API                                        *diffview-clubmate*
 
 `require("diffview.clubmate")` lets a host (Clubmate) drive review tabs over
-RPC. `version` is 2. Every function takes an optional {tab} (tabpage handle);
+RPC. `version` is 3. Every function takes an optional {tab} (tabpage handle);
 without it the current review tab, else the last opened one, is used.
 Functions return `nil, err` instead of echoing errors.
 
 open({opts})                                    *diffview-clubmate.open()*
-        Opens a review tab with the file panel hidden and returns its tabpage.
+        Opens a review tab with the file panel shown and returns its tabpage.
         {opts}:
             {cwd} (string)       Repository or worktree to diff.
             {base} (string?)     Left side rev. Without {head} it is compared
@@ -1767,6 +1785,21 @@ close({tab})                                      *diffview-clubmate.close()*
         Open a file, change reviewed marks, jump to the next file not yet
         reviewed, change the excluded globs, show the file panel, close.
 
+set_meta({tab}, {meta})                        *diffview-clubmate.set_meta()*
+        What the panel prints: `{ subtitle, recipient, sent }`. {subtitle}
+        follows "Review" in the header, {recipient} names who the comments go
+        to once every file is reviewed, {sent} the number of comments sent.
+        Note {tab} comes first. Call it again whenever one of them changes.
+
+filters({tab})                                  *diffview-clubmate.filters()*
+        `{ code, tests, generated, reviewed }`, each `{ shown, count }`.
+        {count} is the number of files in the category; for `reviewed` the
+        reviewed files among the shown categories.
+
+set_filter({name}, {shown}, {tab})           *diffview-clubmate.set_filter()*
+        Shows or hides a category, returns the new |diffview-clubmate.filters()|.
+        `]f` and |diffview-clubmate.next_unreviewed()| skip hidden files.
+
 set_layout({layout}, {tab})                  *diffview-clubmate.set_layout()*
         `"split"` shows the two diff panes, `"inline"` one pane with removed
         lines (deleted fill, old line numbers) above the added ones. Files
@@ -1775,8 +1808,9 @@ set_layout({layout}, {tab})                  *diffview-clubmate.set_layout()*
 subscribe({chan})                             *diffview-clubmate.subscribe()*
         Sends `rpcnotify(chan, "clubmate", { event = "review", kind, path,
         tab })` with {kind} one of `files_updated`, `file_open`, `reviewed`,
-        `reviewed_restored`, `comments` and `closed` (only when the user
-        closes the tab).
+        `reviewed_restored`, `comments`, `send` (the user pressed Send in the
+        panel: `gS` or a click on the button) and `closed` (only when the
+        user closes the tab).
 
 Review tabs opened by the host use a review profile: 'showtabline' is 0 while
 one is current, the diff windows show absolute numbers with only the cursor

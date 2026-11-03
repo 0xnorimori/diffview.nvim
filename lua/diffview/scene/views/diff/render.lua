@@ -190,7 +190,12 @@ local function render_review_header(comp, panel)
   local filled = p.total > 0 and math.floor(BAR_CELLS * p.reviewed / p.total + 0.5) or 0
   local done = p.total > 0 and p.reviewed == p.total
 
-  comp:add_text("Review  ", "DiffviewFilePanelTitle")
+  local meta = panel.host and panel.host.meta or {}
+  comp:add_text("Review", "DiffviewFilePanelTitle")
+  if meta.subtitle then
+    comp:add_text(" " .. meta.subtitle, "DiffviewFilePanelPath")
+  end
+  comp:ln()
   comp:add_text(string.rep("▰", filled), done and "DiffviewFilePanelProgressDone" or "DiffviewFilePanelProgress")
   comp:add_text(string.rep("▱", BAR_CELLS - filled), "DiffviewFilePanelProgressTodo")
   comp:add_text(string.format("  %d/%d", p.reviewed, p.total), "DiffviewFilePanelCounter")

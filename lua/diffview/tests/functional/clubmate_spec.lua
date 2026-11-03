@@ -74,7 +74,7 @@ describe("diffview.clubmate", function()
   end)
 
   it("lists modified and untracked entries with stats, category and kind against a base", function()
-    eq(2, clubmate.version)
+    eq(3, clubmate.version)
     eq({
       {
         path = "a.go",
@@ -194,7 +194,8 @@ describe("diffview.clubmate", function()
     lib.dispose_view(plain)
   end)
 
-  it("hides the file panel on open and toggles it", function()
+  it("toggles the file panel", function()
+    clubmate.set_panel(false, tab)
     assert.is_falsy(view().panel:is_open())
     clubmate.set_panel(true, tab)
     assert.is_truthy(view().panel:is_open())

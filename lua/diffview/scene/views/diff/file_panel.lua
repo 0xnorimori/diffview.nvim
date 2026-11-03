@@ -23,7 +23,8 @@ local M = {}
 ---@field components CompStruct
 ---@field constrain_cursor function
 ---@field help_mapping string
----@field hidden { tests: boolean, generated: boolean, reviewed: boolean }
+---@field hidden { code: boolean, tests: boolean, generated: boolean, reviewed: boolean }
+---@field host? { send: function, meta: { subtitle: string?, recipient: string?, sent: integer? } }
 ---@field visible { conflicting: FileEntry[], working: FileEntry[], staged: FileEntry[] }
 ---@field visible_trees { conflicting: FileTree, working: FileTree, staged: FileTree }
 local FilePanel = oop.create_class("FilePanel", Panel)
@@ -64,6 +65,7 @@ function FilePanel:init(adapter, files, path_args, rev_pretty_name)
   self.tree_options = conf.file_panel.tree_options
   local filters = conf.file_panel.filters
   self.hidden = {
+    code = filters.code.hidden,
     tests = filters.tests.hidden,
     generated = filters.generated.hidden,
     reviewed = filters.reviewed.hidden,
@@ -103,7 +105,7 @@ function FilePanel:counted(file)
   elseif file.review_kind == "generated" then
     return not self.hidden.generated
   end
-  return true
+  return not self.hidden.code
 end
 
 ---@param file FileEntry
@@ -215,6 +217,59 @@ function FilePanel:update_components()
     self.components.working.files.comp,
     self.components.staged.files.comp,
   })
+end
+
+---@return integer[]
+function FilePanel:buffers()
+  return { self.bufid }
+end
+
+---@param files FileEntry[]
+---@return FileEntry[]
+function FilePanel:sorted(files)
+  if self.listing_style == "list" then
+    return files
+  end
+  return vim.tbl_map(function(node)
+    return node.data
+  end, FileTree(files).root:leaves())
+end
+
+---@param dir 1|-1
+---@param cur FileEntry?
+---@return FileEntry?
+function FilePanel:next_unreviewed(dir, cur)
+  local files = self:ordered_file_list()
+  local n = #files
+  if n == 0 then
+    return
+  end
+  local start = utils.vec_indexof(files, cur)
+  if start == -1 then
+    start = dir > 0 and 0 or n + 1
+    if cur then
+      local before = 0
+      local visible = {}
+      for _, file in ipairs(files) do
+        visible[file] = true
+      end
+      for _, kind in ipairs({ "conflicting", "working", "staged" }) do
+        for _, file in ipairs(self:sorted(self.files[kind])) do
+          if file == cur then
+            start = dir > 0 and before or before + 1
+          elseif visible[file] then
+            before = before + 1
+          end
+        end
+      end
+    end
+  end
+  for i = 1, n do
+    local file = files[(start - 1 + i * dir) % n + 1]
+    if not file.reviewed then
+      return file
+    end
+  end
 end
 
 ---@return FileEntry[]
@@ -479,10 +534,32 @@ function FilePanel:restore_cursor_position(pos)
   end
 end
 
----@param name "tests"|"generated"|"reviewed"
+---@param name "code"|"tests"|"generated"|"reviewed"
 function FilePanel:toggle_filter(name)
   self.hidden[name] = not self.hidden[name]
   self:rebuild()
+end
+
+---@param name "code"|"tests"|"generated"|"reviewed"
+---@param hidden boolean
+function FilePanel:set_filter(name, hidden)
+  if self.hidden[name] == nil then
+    error("unknown filter: " .. tostring(name), 0)
+  end
+  if self.hidden[name] ~= hidden then
+    self:toggle_filter(name)
+  end
+end
+
+---@return table<string, { shown: boolean, count: integer }>
+function FilePanel:filters()
+  local p = self:review_progress()
+  local counts = { code = p.code, tests = p.tests, generated = p.generated, reviewed = p.reviewed }
+  local ret = {}
+  for name, count in pairs(counts) do
+    ret[name] = { shown = not self.hidden[name], count = count }
+  end
+  return ret
 end
 
 function FilePanel:rebuild()
@@ -503,9 +580,9 @@ function FilePanel:refresh_review()
   end
 end
 
----@return { reviewed: integer, total: integer, additions: integer, deletions: integer, comments: integer, tests: integer, generated: integer }
+---@return { reviewed: integer, total: integer, additions: integer, deletions: integer, comments: integer, code: integer, tests: integer, generated: integer }
 function FilePanel:review_progress()
-  local p = { reviewed = 0, total = 0, additions = 0, deletions = 0, comments = 0, tests = 0, generated = 0 }
+  local p = { reviewed = 0, total = 0, additions = 0, deletions = 0, comments = 0, code = 0, tests = 0, generated = 0 }
   local paths = {}
   for _, file in self.files:iter() do
     local entry = paths[file.path]
@@ -527,6 +604,8 @@ function FilePanel:review_progress()
       p.tests = p.tests + 1
     elseif entry.kind == "generated" then
       p.generated = p.generated + 1
+    else
+      p.code = p.code + 1
     end
     if entry.counted then
       p.total = p.total + 1

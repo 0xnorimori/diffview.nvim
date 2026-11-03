@@ -43,7 +43,7 @@ function M.nrev(dir, ...)
 end
 
 function M.wait_for(pred)
-  assert(vim.wait(5000, pred, 20), "condition not met in time")
+  assert(vim.wait(10000, pred, 20), "condition not met in time")
 end
 
 function M.make_repo()

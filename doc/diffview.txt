@@ -1773,4 +1773,10 @@ subscribe({chan})                             *diffview-clubmate.subscribe()*
         `reviewed_restored`, `comments` and `closed` (only when the user
         closes the tab).
 
+Review tabs opened by the host use a review profile: 'showtabline' is 0 while
+one is current, the diff windows show absolute numbers with only the cursor
+line number accented, and each winbar reads label, tag, path, where only the
+path truncates. Tags: `checkpoint <sha>`, `merge-base <sha>`, `editable`,
+`read-only`, `new file · N lines`, `did not exist` and `deleted`.
+
  vim:tw=78:ts=8:ft=help:norl:

@@ -17,6 +17,7 @@ local reviews = {}
 local subscribers = {}
 local last_tab
 local toggled_path
+local saved_tabline
 local quiet = { depth = 0, sinks = {} }
 
 local MAX_COUNT_BYTES = 1048576
@@ -187,6 +188,62 @@ local function refresh_counts(view, state)
   end)
 end
 
+local function apply_tabline()
+  if reviews[api.nvim_get_current_tabpage()] then
+    if saved_tabline == nil then
+      saved_tabline = vim.o.showtabline
+    end
+    vim.o.showtabline = 0
+  elseif saved_tabline ~= nil then
+    vim.o.showtabline = saved_tabline
+    saved_tabline = nil
+  end
+end
+
+local function esc(text)
+  return (text:gsub("%%", "%%%%"))
+end
+
+local function short(commit)
+  return commit and commit:sub(1, 7) or ""
+end
+
+local function side_tag(view, state, symbol)
+  if symbol == "a" then
+    if state.turn then
+      return "checkpoint " .. short(view.left.commit)
+    end
+    if state.merge_base == view.left.commit and (state.head or view.left.commit ~= state.tip) then
+      return "merge-base " .. short(view.left.commit)
+    end
+    return nil
+  end
+  return view.right.type == RevType.LOCAL and "editable" or "read-only"
+end
+
+local function winbar(label, tag, path)
+  local parts = { "%#DiffviewWinBarLabel# ", esc(label), " " }
+  if tag then
+    vim.list_extend(parts, { "%#DiffviewWinBarTag#", esc(tag), " " })
+  end
+  vim.list_extend(parts, { "%#DiffviewWinBarPath#%<", esc(path) })
+  return table.concat(parts)
+end
+
+local profile = { number = true, relativenumber = false, cursorline = true, cursorlineopt = "number" }
+
+local function decorate(view, state)
+  local layout = view.cur_layout
+  for _, win in ipairs(layout and layout.windows or {}) do
+    if win:is_valid() and win.file then
+      local symbol = win.file.symbol
+      local label = symbol == "a" and state.labels.left or state.labels.right
+      utils.set_local(win.id, profile)
+      vim.wo[win.id].winbar = winbar(label, side_tag(view, state, symbol), win.file.path)
+    end
+  end
+end
+
 local open_file
 
 local run_open = async.void(function(view, state, tab, file, release)
@@ -267,12 +324,14 @@ local function watch(view, state)
     refresh_counts(view, state)
   end)
   view.emitter:on("file_open_post", function(_, entry)
+    decorate(view, state)
     mark_ready(view, state, view.tabpage)
     notify("file_open", entry.path, view.tabpage)
   end)
   view.emitter:on("view_closed", function()
     state.release_open()
     reviews[view.tabpage] = nil
+    vim.schedule(apply_tabline)
     if last_tab == view.tabpage then
       last_tab = nil
       if not state.closing then
@@ -283,6 +342,11 @@ local function watch(view, state)
 end
 
 local group = api.nvim_create_augroup("diffview_clubmate", { clear = true })
+
+api.nvim_create_autocmd("TabEnter", {
+  group = group,
+  callback = apply_tabline,
+})
 
 api.nvim_create_autocmd("User", {
   group = group,
@@ -374,6 +438,11 @@ local function open(opts)
   if not view then
     return nil
   end
+  local top = view.adapter.ctx.toplevel
+  local labels, turn = side_labels(top, opts, view.left)
+  local merge_base = opts.head and view.left.commit
+    or (view.left.commit and git_out(top, { "merge-base", view.left.commit, "HEAD" }))
+  local tip = not opts.head and git_out(top, { "rev-parse", "HEAD" }) or nil
   local release = hold()
   local ok, err = pcall(function()
     view:open()
@@ -383,8 +452,6 @@ local function open(opts)
     release()
     error(err, 0)
   end
-  local top = view.adapter.ctx.toplevel
-  local labels, turn = side_labels(top, opts, view.left)
   local state = {
     reviewed = {},
     seen = setmetatable({}, { __mode = "k" }),
@@ -395,12 +462,13 @@ local function open(opts)
     head = opts.head,
     labels = labels,
     turn = turn,
-    merge_base = opts.head and view.left.commit
-      or (view.left.commit and git_out(top, { "merge-base", view.left.commit, "HEAD" })),
+    merge_base = merge_base,
+    tip = tip,
   }
   reviews[view.tabpage] = state
   last_tab = view.tabpage
   watch(view, state)
+  apply_tabline()
   return view.tabpage
 end
 

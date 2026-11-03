@@ -10,6 +10,10 @@ local hls = {
   note = "DiagnosticHint",
   praise = "DiagnosticOk",
 }
+local tones = { issue = "DiagnosticWarn" }
+local RULE = "▎ "
+local KEYS = ",rx resolve · ,rd delete"
+local DEFAULT_WIDTH = 80
 
 local config = { bin = nil }
 local warned = false
@@ -128,30 +132,86 @@ local function comments_changed()
   vim.api.nvim_exec_autocmds("User", { pattern = "NrevCommentsChanged" })
 end
 
+local rendered = {}
+
+local function pane_width(bufnr)
+  local width
+  for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+    local info = vim.fn.getwininfo(win)[1]
+    local w = vim.api.nvim_win_get_width(win) - (info and info.textoff or 0)
+    width = width and math.min(width, w) or w
+  end
+  return width or DEFAULT_WIDTH
+end
+
+local function wrap(text, width)
+  local out = {}
+  for _, para in ipairs(vim.split(text, "\n", { plain = true })) do
+    local line = ""
+    for word in para:gmatch("%S+") do
+      local candidate = line == "" and word or (line .. " " .. word)
+      if vim.fn.strdisplaywidth(candidate) <= width then
+        line = candidate
+      else
+        if line ~= "" then
+          table.insert(out, line)
+        end
+        while vim.fn.strdisplaywidth(word) > width do
+          local n = vim.fn.byteidx(word, width)
+          table.insert(out, word:sub(1, n))
+          word = word:sub(n + 1)
+        end
+        line = word
+      end
+    end
+    table.insert(out, line)
+  end
+  return out
+end
+
+local function comment_lines(c, drifted, width)
+  local tone = tones[c.type] or "Comment"
+  local rule = { RULE, tone }
+  if c.status == "resolved" then
+    return { { { RULE, "Comment" }, { ("✓ %s · resolved"):format(c.type), "Comment" } } }
+  end
+  local inner = math.max(width - vim.fn.strdisplaywidth(RULE), 1)
+  local title = ("%s %s%s"):format(icons[c.type] or "●", c.type, drifted and " ⚠" or "")
+  local head = { rule, { title, tones[c.type] or "Normal" } }
+  local gap = inner - vim.fn.strdisplaywidth(title) - vim.fn.strdisplaywidth(KEYS)
+  if gap >= 2 then
+    vim.list_extend(head, { { string.rep(" ", gap), "Normal" }, { KEYS, "Comment" } })
+  end
+  local virt = { head }
+  for _, line in ipairs(wrap(c.text, inner)) do
+    table.insert(virt, { rule, { line, "Normal" } })
+  end
+  if c.resolution and c.resolution ~= vim.NIL then
+    for _, line in ipairs(wrap("↳ " .. c.resolution, inner)) do
+      table.insert(virt, { rule, { line, "Comment" } })
+    end
+  end
+  return virt
+end
+
 local function render(bufnr, comments)
+  rendered[bufnr] = comments
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
   local count = vim.api.nvim_buf_line_count(bufnr)
+  local width = pane_width(bufnr)
   local rows = {}
+  local placed = {}
   for _, c in ipairs(comments) do
     local row = math.min(c.line_start, count) - 1
     local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
     local drifted = c.status == "open" and line ~= c.line_text
-    local head
-    if c.status == "resolved" then
-      head = { { ("✓ %s resolved"):format(c.type), "Comment" } }
-    else
-      local hl = hls[c.type] or "DiagnosticInfo"
-      head = { { ("%s %s%s"):format(icons[c.type] or "●", c.type, drifted and " ⚠" or ""), hl } }
-    end
-    local virt = { head, { { "  " .. c.text, "Normal" } } }
-    if c.resolution and c.resolution ~= vim.NIL then
-      table.insert(virt, { { "  ↳ " .. c.resolution, "Comment" } })
-    end
+    local virt = comment_lines(c, drifted, width)
     local mark = vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, {
       sign_text = c.status == "resolved" and "✓" or "✎",
-      sign_hl_group = c.status == "resolved" and "Comment" or (hls[c.type] or "DiagnosticInfo"),
+      sign_hl_group = c.status == "resolved" and "Comment" or (tones[c.type] or hls[c.type] or "DiagnosticInfo"),
       virt_lines = virt,
     })
+    table.insert(placed, { row = row + 1, lines = #virt })
     table.insert(rows, {
       row = row + 1,
       row_end = math.min(c.line_end, count),
@@ -161,6 +221,13 @@ local function render(bufnr, comments)
     })
   end
   vim.b[bufnr].nrev_comments = rows
+  require("nrev.diffview").fill(bufnr, placed)
+end
+
+function M.rerender(bufnr)
+  if rendered[bufnr] and vim.api.nvim_buf_is_valid(bufnr) then
+    render(bufnr, rendered[bufnr])
+  end
 end
 
 function M.refresh(bufnr)
@@ -404,6 +471,25 @@ function M.setup(opts)
     pattern = "diffview://*",
     callback = function(ev)
       M.refresh(ev.buf)
+    end,
+  })
+  vim.api.nvim_create_autocmd("WinResized", {
+    group = group,
+    callback = function()
+      local seen = {}
+      for _, win in ipairs(vim.v.event.windows or {}) do
+        local buf = vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win)
+        if buf and not seen[buf] then
+          seen[buf] = true
+          M.rerender(buf)
+        end
+      end
+    end,
+  })
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    group = group,
+    callback = function(ev)
+      rendered[ev.buf] = nil
     end,
   })
   vim.api.nvim_create_user_command("NrevRefresh", function()

@@ -4,6 +4,7 @@ local async = require("diffview.async")
 local lib = require("diffview.lib")
 local utils = require("diffview.utils")
 
+local Diff1Inline = require("diffview.scene.layouts.diff_1_inline").Diff1Inline
 local RevType = require("diffview.vcs.rev").RevType
 local fill = require("diffview.review.fill")
 
@@ -246,9 +247,24 @@ end
 
 local profile = { number = true, relativenumber = false, cursorline = true, cursorlineopt = "number" }
 
+local function inline_winbar(state, path)
+  return table.concat({
+    "%#DiffviewWinBarPath# %<", esc(path), " %#DiffviewWinBarTag#inline ",
+    "%#DiffviewWinBarLabel#", esc(state.labels.left), " → ", esc(state.labels.right),
+  })
+end
+
 local function decorate(view, state)
   fill.apply(view)
   local layout = view.cur_layout
+  if layout and layout:instanceof(Diff1Inline) then
+    local win = layout.b
+    if win:is_valid() then
+      utils.set_local(win.id, profile)
+      vim.wo[win.id].winbar = inline_winbar(state, view.cur_entry and view.cur_entry.path or "")
+    end
+    return
+  end
   for _, win in ipairs(layout and layout.windows or {}) do
     if win:is_valid() and win.file then
       local symbol = win.file.symbol
@@ -258,6 +274,22 @@ local function decorate(view, state)
       vim.wo[win.id].winbar = winbar(label, path, side_tag(view, state, symbol, win))
     end
   end
+end
+
+local function layout_class(view, state)
+  return state.layout == "inline" and Diff1Inline or view.default_layout
+end
+
+local function convert(view, state)
+  local cls = layout_class(view, state)
+  local cur_changed = false
+  for _, entry in view.files:iter() do
+    if entry.kind ~= "conflicting" and entry.layout.class ~= cls then
+      entry:convert_layout(cls)
+      cur_changed = cur_changed or entry == view.cur_entry
+    end
+  end
+  return cur_changed
 end
 
 local open_file
@@ -318,6 +350,9 @@ end
 
 local function watch(view, state)
   view.emitter:on("files_updated", function()
+    if state.layout and convert(view, state) and view.cur_entry then
+      open_file(view, state, view.tabpage, view.cur_entry)
+    end
     local changed = false
     for _, file in view.files:iter() do
       if not state.seen[file] then
@@ -666,6 +701,20 @@ local function set_panel(visible, tab)
   end
 end
 
+local function set_layout(layout, tab)
+  local view, state, t = resolve(tab)
+  if not view then
+    return
+  end
+  if layout ~= "inline" and layout ~= "split" then
+    error("unknown layout: " .. tostring(layout), 0)
+  end
+  state.layout = layout
+  if convert(view, state) and view.cur_entry then
+    open_file(view, state, t, view.cur_entry)
+  end
+end
+
 local function close(tab)
   local view, state = resolve(tab)
   if view then
@@ -711,6 +760,7 @@ M.set_reviewed = guard("set_reviewed", set_reviewed)
 M.next_unreviewed = guard("next_unreviewed", next_unreviewed)
 M.set_excludes = guard("set_excludes", set_excludes)
 M.set_panel = guard("set_panel", set_panel)
+M.set_layout = guard("set_layout", set_layout)
 M.close = guard("close", close)
 M.subscribe = guard("subscribe", subscribe)
 

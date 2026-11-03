@@ -174,7 +174,9 @@ function M.setup()
   vim.api.nvim_create_autocmd("User", {
     group = group,
     pattern = "DiffviewDiffBufWinEnter",
-    callback = rerender_tab,
+    callback = function()
+      vim.schedule(rerender_tab)
+    end,
   })
   vim.api.nvim_create_autocmd("User", {
     group = group,

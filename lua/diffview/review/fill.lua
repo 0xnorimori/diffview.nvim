@@ -44,13 +44,15 @@ local function filler_buf(win)
   return buf
 end
 
-local function show(win, text)
+function M.show(win, text, diff)
   local buf = filler_buf(win)
   if api.nvim_win_get_buf(win.id) ~= buf then
     api.nvim_win_set_buf(win.id, buf)
-    api.nvim_win_call(win.id, function()
-      vim.cmd("diffthis")
-    end)
+    if diff ~= false then
+      api.nvim_win_call(win.id, function()
+        vim.cmd("diffthis")
+      end)
+    end
   end
   api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   api.nvim_buf_set_extmark(buf, ns, 0, 0, {
@@ -69,7 +71,7 @@ function M.apply(view)
   for _, win in ipairs(wins) do
     if win:is_valid() then
       if win.file and win.file.nulled then
-        show(win, M.message(view, win.file.symbol))
+        M.show(win, M.message(view, win.file.symbol))
       end
       api.nvim_win_call(win.id, function()
         vim.opt_local.fillchars:append({ diff = M.FILLER })

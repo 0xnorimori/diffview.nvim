@@ -170,5 +170,59 @@ describe("diffview.clubmate review profile", function()
     eq("New file — nothing before HEAD", message(first_left))
     clubmate.close(first)
   end)
+
+  local function inline_marks(win)
+    local ns = vim.api.nvim_create_namespace("diffview_inline")
+    return vim.api.nvim_buf_get_extmarks(vim.api.nvim_win_get_buf(win), ns, 0, -1, { details = true })
+  end
+
+  it("set_layout inline shows one pane with removed above added", function()
+    clubmate.set_layout("inline", tab)
+    wait_for(function()
+      local l = view().cur_layout
+      return #l.windows == 1 and #inline_marks(l.windows[1].id) > 0
+    end)
+    local win = view().cur_layout.windows[1].id
+    local removed, added = {}, {}
+    for _, m in ipairs(inline_marks(win)) do
+      local d = m[4]
+      for _, line in ipairs(d.virt_lines or {}) do
+        local chunk = line[#line]
+        table.insert(removed, { m[2], d.virt_lines_above, vim.trim(chunk[1]), chunk[2] })
+      end
+      if d.line_hl_group then
+        table.insert(added, { m[2], d.line_hl_group })
+      end
+    end
+    eq({ { 1, true, "func A() {}", "DiffDelete" } }, removed)
+    eq({ { 1, "DiffAdd" }, { 2, "DiffAdd" } }, added)
+    eq(false, vim.wo[win].diff)
+    eq("%<a.go inline HEAD → Working tree", vim.trim(bar_text(win)))
+
+    clubmate.set_layout("split", tab)
+    wait_for(function()
+      return #view().cur_layout.windows == 2
+    end)
+    eq({}, inline_marks(view().cur_layout.b.id))
+  end)
+
+  it("keeps inline for files that open later and for deleted files", function()
+    clubmate.close(tab)
+    vim.fn.delete(repo .. "/a_test.go")
+    open_review()
+    clubmate.set_layout("inline", tab)
+    select("a_test.go")
+    local win = view().cur_layout.windows[1].id
+    wait_for(function()
+      return #view().cur_layout.windows == 1 and #inline_marks(win) > 0
+    end)
+    local lines = {}
+    for _, m in ipairs(inline_marks(win)) do
+      for _, line in ipairs(m[4].virt_lines or {}) do
+        table.insert(lines, vim.trim(line[#line][1]))
+      end
+    end
+    eq({ "package a" }, lines)
+  end)
 end)
 

@@ -106,6 +106,22 @@ describe("nrev comments in a review", function()
     end)
     eq(height(l.a.id), height(l.b.id))
   end)
+
+  helpers.nrev_it("comments still render in the inline layout", function()
+    clubmate.set_layout("inline", tab)
+    local view = require("diffview.lib").tabpage_to_view(tab)
+    wait_for(function()
+      local l = view.cur_layout
+      return #l.windows == 1 and l.rendered_buf ~= nil
+    end)
+    local win = view.cur_layout.windows[1].id
+    wait_for(function()
+      local lines = virt_lines(win, "nrev")
+      return #lines >= 2 and vim.iter(lines):all(function(line)
+        return width(line) <= text_width(win)
+      end) and width(lines[2]) > 100
+    end)
+  end)
 end)
 
 describe("nrev.diffview.map_line", function()

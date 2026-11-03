@@ -1767,6 +1767,11 @@ close({tab})                                      *diffview-clubmate.close()*
         Open a file, change reviewed marks, jump to the next file not yet
         reviewed, change the excluded globs, show the file panel, close.
 
+set_layout({layout}, {tab})                  *diffview-clubmate.set_layout()*
+        `"split"` shows the two diff panes, `"inline"` one pane with removed
+        lines (deleted fill, old line numbers) above the added ones. Files
+        that show up later keep the chosen layout.
+
 subscribe({chan})                             *diffview-clubmate.subscribe()*
         Sends `rpcnotify(chan, "clubmate", { event = "review", kind, path,
         tab })` with {kind} one of `files_updated`, `file_open`, `reviewed`,

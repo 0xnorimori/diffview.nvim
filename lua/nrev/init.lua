@@ -135,8 +135,14 @@ end
 local rendered = {}
 
 local function pane_width(bufnr)
+  local wins = vim.tbl_filter(function(win)
+    return vim.api.nvim_win_get_tabpage(win) == vim.api.nvim_get_current_tabpage()
+  end, vim.fn.win_findbuf(bufnr))
+  if #wins == 0 then
+    wins = vim.fn.win_findbuf(bufnr)
+  end
   local width
-  for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+  for _, win in ipairs(wins) do
     local info = vim.fn.getwininfo(win)[1]
     local w = vim.api.nvim_win_get_width(win) - (info and info.textoff or 0)
     width = width and math.min(width, w) or w

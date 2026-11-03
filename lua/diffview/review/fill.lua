@@ -47,12 +47,15 @@ end
 function M.show(win, text, diff)
   local buf = filler_buf(win)
   if api.nvim_win_get_buf(win.id) ~= buf then
+    local winbar = vim.wo[win.id].winbar
     api.nvim_win_set_buf(win.id, buf)
     if diff ~= false then
       api.nvim_win_call(win.id, function()
         vim.cmd("diffthis")
       end)
     end
+    win:apply_null_winopts()
+    vim.wo[win.id].winbar = winbar
   end
   api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   api.nvim_buf_set_extmark(buf, ns, 0, 0, {

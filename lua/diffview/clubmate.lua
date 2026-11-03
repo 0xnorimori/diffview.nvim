@@ -379,15 +379,18 @@ local function watch(view, state)
     decorate(view, state)
     notify("file_open", entry.path, view.tabpage)
   end)
-  view.emitter:on("view_closed", function()
+  view.emitter:on("view_closed", function(_, closed)
+    if closed ~= view or reviews[view.tabpage] ~= state then
+      return
+    end
     state.release_open()
     reviews[view.tabpage] = nil
     vim.schedule(apply_tabline)
     if last_tab == view.tabpage then
       last_tab = nil
-      if not state.closing then
-        notify("closed", nil, view.tabpage)
-      end
+    end
+    if not state.closing then
+      notify("closed", nil, view.tabpage)
     end
   end)
 end

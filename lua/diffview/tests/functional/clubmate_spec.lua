@@ -366,6 +366,25 @@ describe("diffview.clubmate", function()
     end)
   end)
 
+  it("notifies subscribers when the user closes a review other than the newest", function()
+    capture(function(sent)
+      clubmate.subscribe(7)
+      local older = tab
+      open_review()
+      local newer = tab
+      assert.are_not.equal(older, newer)
+
+      vim.api.nvim_set_current_tabpage(older)
+      vim.cmd("DiffviewClose")
+      assert.is_true(was_sent(sent, "closed", nil, older))
+      assert.is_false(was_sent(sent, "closed", nil, newer))
+
+      vim.api.nvim_set_current_tabpage(newer)
+      vim.cmd("DiffviewClose")
+      assert.is_true(was_sent(sent, "closed", nil, newer))
+    end)
+  end)
+
   it("keeps async messages of module-driven opens out of vim.notify", function()
     local echoed = {}
     local notify = vim.notify

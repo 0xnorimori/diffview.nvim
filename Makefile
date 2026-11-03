@@ -13,7 +13,7 @@ export TEST_PATH
 .PHONY: test
 test:
 	nvim --headless -i NONE -n -u scripts/test_init.lua -c \
-		"PlenaryBustedDirectory $(TEST_PATH) { minimal_init = './scripts/test_init.lua', timeout = 180000 }"
+		"PlenaryBustedDirectory $(TEST_PATH) { minimal_init = './scripts/test_init.lua', timeout = 180000, sequential = true }"
 
 .PHONY: dev
 dev: .dev/lua/nvim

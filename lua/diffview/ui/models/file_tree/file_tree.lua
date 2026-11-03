@@ -21,8 +21,10 @@ local FileTree = oop.create_class("FileTree", Model)
 
 ---FileTree constructor
 ---@param files FileEntry[]?
-function FileTree:init(files)
+---@param grouped boolean? One folder per parent directory instead of nested folders.
+function FileTree:init(files, grouped)
   self.root = Node("__ROOT__")
+  self.grouped = grouped
 
   for _, file in ipairs(files or {}) do
     self:add_file_entry(file)
@@ -32,6 +34,9 @@ end
 ---@param file FileEntry
 function FileTree:add_file_entry(file)
   local parts = pl:explode(file.path)
+  if self.grouped and #parts > 2 then
+    parts = { table.concat(parts, "/", 1, #parts - 1), parts[#parts] }
+  end
   local cur_node = self.root
 
   local path = parts[1]

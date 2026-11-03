@@ -7,6 +7,7 @@ local utils = require("diffview.utils")
 local Diff1Inline = require("diffview.scene.layouts.diff_1_inline").Diff1Inline
 local RevType = require("diffview.vcs.rev").RevType
 local fill = require("diffview.review.fill")
+local review = require("diffview.review.panel")
 
 local api = vim.api
 local logger = DiffviewGlobal.logger
@@ -22,7 +23,6 @@ local toggled_path
 local saved_tabline
 local quiet = { depth = 0, sinks = {} }
 
-local MAX_COUNT_BYTES = 1048576
 local QUIET_TIMEOUT = 10000
 
 local source = debug.getinfo(1, "S").source:sub(2)
@@ -114,25 +114,6 @@ local function snapshot_reviewed(view, state)
   end
 end
 
-local function line_count(path)
-  local stat = vim.uv.fs_lstat(path)
-  if not stat or stat.type ~= "file" then
-    return stat and stat.type == "link" and 1 or 0
-  end
-  local flags = bit.bor(vim.uv.constants.O_RDONLY or 0, vim.uv.constants.O_NONBLOCK or 0)
-  local fd = vim.uv.fs_open(path, flags, 0)
-  if not fd then
-    return 0
-  end
-  local fstat = vim.uv.fs_fstat(fd)
-  local data = fstat and fstat.type == "file" and vim.uv.fs_read(fd, MAX_COUNT_BYTES, 0) or ""
-  vim.uv.fs_close(fd)
-  if data == "" or data:find("\0", 1, true) then
-    return 0
-  end
-  local _, n = data:gsub("\n", "")
-  return data:sub(-1) == "\n" and n or n + 1
-end
 
 local function nrev_cmd(status)
   local bin = vim.fn.executable(local_nrev) == 1 and local_nrev
@@ -561,7 +542,7 @@ local function entries(tab)
     local stats = file.stats or {}
     local additions = stats.additions
     if not additions and file.status == "?" then
-      additions = line_count(file.absolute_path)
+      additions = review.line_count(file.absolute_path)
     end
     local kind = kinds[file.status] or "modified"
     return {

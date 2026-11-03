@@ -225,6 +225,11 @@ function Panel:is_open(tabpage)
   return valid
 end
 
+---@return integer
+function Panel:window_count()
+  return 1
+end
+
 function Panel:is_focused()
   return self:is_open() and api.nvim_get_current_win() == self.winid
 end

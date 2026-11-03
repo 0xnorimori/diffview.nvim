@@ -1,10 +1,9 @@
 local config = require("diffview.config")
-local hl = require("diffview.hl")
+local review = require("diffview.review.panel")
 local utils = require("diffview.utils")
 
+local api = vim.api
 local pl = utils.path
-
-local BAR_CELLS = 10
 
 local function count_reviewed_in_dir(items_comp)
   local reviewed = 0
@@ -42,87 +41,123 @@ local function count_comments_in_dir(items_comp)
   return count
 end
 
----@param comp  RenderComponent
----@param show_path boolean
----@param depth integer|nil
-local function render_file(comp, show_path, depth)
-  ---@type FileEntry
-  local file = comp.context
-
-  if file.reviewed then
-    comp:add_text("✓", "DiffviewFilePanelReviewed")
-  elseif file.stale then
-    comp:add_text("●", "DiffviewFilePanelStale")
-  else
-    comp:add_text(" ")
+local function strwidth(parts)
+  local w = 0
+  for _, part in ipairs(parts) do
+    w = w + api.nvim_strwidth(part[1])
   end
-
-  if (file.comments or 0) > 0 then
-    comp:add_text(string.format("[%d]", file.comments), "DiffviewAnnotation")
-  end
-
-  comp:add_text(file.status .. " ", hl.get_git_hl(file.status))
-
-  if depth then
-    comp:add_text(string.rep(" ", depth * 2 + 2))
-  end
-
-  local icon, icon_hl = hl.get_file_icon(file.basename, file.extension)
-  comp:add_text(icon, icon_hl)
-  comp:add_text(file.basename, file.active and "DiffviewFilePanelSelected" or "DiffviewFilePanelFileName")
-
-  if file.stats then
-    if file.stats.additions then
-      comp:add_text(" " .. file.stats.additions, "DiffviewFilePanelInsertions")
-      comp:add_text(", ")
-      comp:add_text(tostring(file.stats.deletions), "DiffviewFilePanelDeletions")
-    elseif file.stats.conflicts then
-      local has_conflicts = file.stats.conflicts > 0
-      comp:add_text(
-        " " .. (has_conflicts and file.stats.conflicts or config.get_config().signs.done),
-        has_conflicts and "DiffviewFilePanelConflicts" or "DiffviewFilePanelInsertions"
-      )
-    end
-  end
-
-  if file.kind == "conflicting" and not (file.stats and file.stats.conflicts) then
-    comp:add_text(" !", "DiffviewFilePanelConflicts")
-  end
-
-  if show_path then
-    comp:add_text(" " .. file.parent_path, "DiffviewFilePanelPath")
-  end
-
-  comp:ln()
+  return w
 end
 
 ---@param comp RenderComponent
-local function render_file_list(comp)
-  for _, file_comp in ipairs(comp.components) do
-    render_file(file_comp, true, nil)
+---@param left { [1]: string, [2]: string?, flex: boolean?, path: boolean? }[]
+---@param right { [1]: string, [2]: string? }[]
+---@param width integer
+---@param line_hl string?
+local function add_row(comp, left, right, width, line_hl)
+  local fixed = strwidth(right)
+  for _, part in ipairs(left) do
+    if not part.flex then
+      fixed = fixed + api.nvim_strwidth(part[1])
+    end
   end
+  local room = width - 1 - fixed - (#right > 0 and 1 or 0)
+  local start = #comp.line_buffer
+  local w = 0
+  for _, part in ipairs(left) do
+    local text = part[1]
+    if part.flex then
+      text = part.path and review.truncate_path(text, room) or review.truncate(text, room)
+      room = room - api.nvim_strwidth(text)
+    end
+    comp:add_text(text, part[2])
+    w = w + api.nvim_strwidth(text)
+  end
+  if #right > 0 then
+    local gap = math.max(width - 1 - w - strwidth(right), 1)
+    comp:add_text(string.rep(" ", gap))
+    w = w + gap
+    for _, part in ipairs(right) do
+      comp:add_text(part[1], part[2])
+    end
+    w = w + strwidth(right)
+  end
+  if line_hl then
+    comp:add_text(string.rep(" ", math.max(width - w, 0)))
+    table.insert(comp.hl, 1, { group = line_hl, line_idx = #comp.lines, first = start, last = #comp.line_buffer })
+  end
+  comp:ln()
 end
 
----@param ctx DirData
----@param tree_options TreeOptions
----@return string
-local function get_dir_status_text(ctx, tree_options)
-  local folder_statuses = tree_options.folder_statuses
+local kind_chips = {
+  A = { " new ", "DiffviewReviewChipNew" },
+  ["?"] = { " new ", "DiffviewReviewChipNew" },
+  D = { " deleted ", "DiffviewReviewChipDeleted" },
+  R = { " renamed ", "DiffviewReviewChip" },
+}
 
-  if folder_statuses == "always" or (folder_statuses == "only_folded" and ctx.collapsed) then
-    return ctx.status
+---@param comp RenderComponent
+---@param show_path boolean
+---@param depth integer
+---@param width integer
+local function render_file(comp, show_path, depth, width)
+  ---@type FileEntry
+  local file = comp.context
+  local left = {
+    file.active and { "▎", "DiffviewReviewActiveBar" } or { " " },
+    { string.rep(" ", depth * 2) },
+  }
+
+  if file.reviewed then
+    table.insert(left, { "✓", "DiffviewReviewSuccess" })
+  elseif file.stale then
+    table.insert(left, { "●", "DiffviewReviewWarning" })
+  else
+    table.insert(left, { "○", "DiffviewReviewFaint" })
+  end
+  table.insert(left, { " " })
+  table.insert(left, { file.basename, "DiffviewReviewText", flex = true })
+  if show_path and file.parent_path ~= "" then
+    table.insert(left, { " " .. file.parent_path, "DiffviewReviewMuted", flex = true })
   end
 
-  return " "
+  local right = {}
+  local chip = kind_chips[file.status]
+  if chip then
+    table.insert(right, chip)
+    table.insert(right, { " " })
+  end
+  if (file.comments or 0) > 0 then
+    table.insert(right, { " " .. file.comments .. " ", "DiffviewReviewCount" })
+    table.insert(right, { " " })
+  end
+  local additions, deletions = review.stats(file)
+  if additions then
+    table.insert(right, { "+" .. additions, "DiffviewReviewSuccess" })
+    table.insert(right, { " " })
+    table.insert(right, { "−" .. deletions, "DiffviewReviewDanger" })
+  elseif file.stats and file.stats.conflicts then
+    local has_conflicts = file.stats.conflicts > 0
+    table.insert(right, {
+      has_conflicts and tostring(file.stats.conflicts) or config.get_config().signs.done,
+      has_conflicts and "DiffviewFilePanelConflicts" or "DiffviewReviewSuccess",
+    })
+  elseif file.kind == "conflicting" then
+    table.insert(right, { "!", "DiffviewFilePanelConflicts" })
+  end
+  if right[#right] and right[#right][1] == " " then
+    table.remove(right)
+  end
+
+  add_row(comp, left, right, width, file.active and "DiffviewReviewActive" or nil)
 end
 
 ---@param depth integer
 ---@param comp RenderComponent
-local function render_file_tree_recurse(depth, comp)
-  local conf = config.get_config()
-
+---@param width integer
+local function render_file_tree_recurse(depth, comp, width)
   if comp.name == "file" then
-    render_file(comp, false, depth)
+    render_file(comp, false, depth, width)
     return
   end
 
@@ -132,118 +167,92 @@ local function render_file_tree_recurse(depth, comp)
   local items = comp.components[2]
   local ctx = comp.context --[[@as DirData ]]
 
-  dir:add_text(
-    get_dir_status_text(ctx, conf.file_panel.tree_options) .. " ",
-    hl.get_git_hl(ctx.status)
-  )
-  dir:add_text(string.rep(" ", depth * 2))
-  dir:add_text(ctx.collapsed and conf.signs.fold_closed or conf.signs.fold_open, "DiffviewNonText")
-
-  if conf.use_icons then
-    dir:add_text(
-      " " .. (ctx.collapsed and conf.icons.folder_closed or conf.icons.folder_open) .. " ",
-      "DiffviewFolderSign"
-    )
-  end
-
-  dir:add_text(ctx.name, "DiffviewFolderName")
-
   local reviewed, total = count_reviewed_in_dir(items)
-  if reviewed > 0 then
-    dir:add_text(string.format(" (%d/%d)", reviewed, total), "DiffviewFilePanelReviewed")
-  end
-
   local comments = count_comments_in_dir(items)
+  local right = {}
   if comments > 0 then
-    dir:add_text(string.format(" [%d]", comments), "DiffviewAnnotation")
+    table.insert(right, { " " .. comments .. " ", "DiffviewReviewCount" })
+    table.insert(right, { " " })
   end
+  table.insert(right, { ("%d/%d"):format(reviewed, total), "DiffviewReviewMuted" })
 
-  dir:ln()
+  add_row(dir, {
+    { " " .. string.rep(" ", depth * 2) },
+    { ctx.collapsed and "›" or "⌄", "DiffviewReviewMuted" },
+    { " " },
+    { ctx.name, "DiffviewReviewFolder", flex = true, path = true },
+  }, right, width)
 
   if not ctx.collapsed then
     for _, item in ipairs(items.components) do
-      render_file_tree_recurse(depth + 1, item)
+      render_file_tree_recurse(depth + 1, item, width)
     end
   end
 end
 
+---@param panel FilePanel
 ---@param comp RenderComponent
-local function render_file_tree(comp)
+---@param width integer
+local function render_files(panel, comp, width)
+  if panel.listing_style == "list" then
+    for _, file_comp in ipairs(comp.components) do
+      render_file(file_comp, true, 0, width)
+    end
+    return
+  end
   for _, c in ipairs(comp.components) do
-    render_file_tree_recurse(0, c)
+    render_file_tree_recurse(0, c, width)
   end
 end
 
----@param listing_style "list"|"tree"
----@param comp RenderComponent
-local function render_files(listing_style, comp)
-  if listing_style == "list" then
-    return render_file_list(comp)
+local function hidden_note(panel, p)
+  local parts = {}
+  if panel.hidden.tests and p.tests > 0 then
+    parts[#parts + 1] = "tests"
   end
-  render_file_tree(comp)
+  if panel.hidden.generated and p.generated > 0 then
+    parts[#parts + 1] = "generated files"
+  end
+  if #parts == 0 then
+    return nil
+  end
+  local text = table.concat(parts, " and ")
+  return text:sub(1, 1):upper() .. text:sub(2) .. " are hidden."
 end
 
 ---@param comp RenderComponent
 ---@param panel FilePanel
-local function render_review_header(comp, panel)
+---@param width integer
+local function render_tip(comp, panel, width)
   local p = panel:review_progress()
-  local filled = p.total > 0 and math.floor(BAR_CELLS * p.reviewed / p.total + 0.5) or 0
-  local done = p.total > 0 and p.reviewed == p.total
-
-  local meta = panel.host and panel.host.meta or {}
-  comp:add_text("Review", "DiffviewFilePanelTitle")
-  if meta.subtitle then
-    comp:add_text(" " .. meta.subtitle, "DiffviewFilePanelPath")
+  if p.reviewed > 0 or p.total == 0 or #(panel.comments or {}) > 0 or review.open_comments(panel) > 0 then
+    return
   end
-  comp:ln()
-  comp:add_text(string.rep("▰", filled), done and "DiffviewFilePanelProgressDone" or "DiffviewFilePanelProgress")
-  comp:add_text(string.rep("▱", BAR_CELLS - filled), "DiffviewFilePanelProgressTodo")
-  comp:add_text(string.format("  %d/%d", p.reviewed, p.total), "DiffviewFilePanelCounter")
-  comp:ln()
-
-  comp:add_text("+" .. p.additions, "DiffviewFilePanelInsertions")
-  comp:add_text(" −" .. p.deletions, "DiffviewFilePanelDeletions")
-  if p.comments > 0 then
-    comp:add_text(
-      string.format(" · %d %s", p.comments, p.comments == 1 and "comment" or "comments"),
-      "DiffviewFilePanelCounter"
-    )
+  local text = "Read a file, press r to mark it reviewed; ]f opens the next one."
+  local note = hidden_note(panel, p)
+  if note then
+    text = text .. " " .. note
   end
-  comp:ln()
-
-  comp:add_text("code", "DiffviewFilePanelChipOn")
-  comp:add_text("  ")
-  comp:add_text("tests " .. p.tests, panel.hidden.tests and "DiffviewFilePanelChip" or "DiffviewFilePanelChipOn")
-  comp:add_text("  ")
-  comp:add_text("gen " .. p.generated, panel.hidden.generated and "DiffviewFilePanelChip" or "DiffviewFilePanelChipOn")
-  comp:ln()
+  for i, row in ipairs(review.wrap(text, width - 4)) do
+    comp:add_text(i == 1 and " › " or "   ", "DiffviewReviewMuted")
+    local start = #comp.line_buffer
+    comp:add_text(row, "DiffviewReviewMuted")
+    for _, key in ipairs({ "r", "]f" }) do
+      local from = 1
+      while true do
+        local s, e = row:find(key, from, true)
+        if not s then break end
+        local before = s == 1 and " " or row:sub(s - 1, s - 1)
+        local after = row:sub(e + 1, e + 1)
+        if before == " " and (after == " " or after == "") then
+          comp:add_hl("DiffviewReviewKey", #comp.lines, start + s - 1, start + e)
+        end
+        from = e + 1
+      end
+    end
+    comp:ln()
+  end
   comp:add_line()
-end
-
-local HINTS = {
-  { desc = "Toggle test files", label = "tests" },
-  { desc = "Toggle generated files", label = "gen" },
-  { desc = "Toggle reviewed files", label = "reviewed" },
-}
-
----@param comp RenderComponent
-local function render_hints(comp)
-  local keys = {}
-  for _, mapping in ipairs(config.get_config().keymaps.file_panel) do
-    if type(mapping[4]) == "table" and mapping[4].desc then
-      keys[mapping[4].desc] = mapping[2]
-    end
-  end
-  local parts = {}
-  for _, hint in ipairs(HINTS) do
-    if keys[hint.desc] then
-      parts[#parts + 1] = keys[hint.desc] .. " " .. hint.label
-    end
-  end
-  if #parts > 0 then
-    comp:add_line()
-    comp:add_line(table.concat(parts, " · "), "DiffviewFilePanelKeyHint")
-  end
 end
 
 ---@param panel FilePanel
@@ -253,69 +262,66 @@ return function(panel)
   end
 
   panel.render_data:clear()
-  local conf = config.get_config()
   local width = panel:infer_width()
   local visible = panel.visible
 
-  local comp = panel.components.path.comp
+  render_tip(panel.components.path.comp, panel, width)
 
-  comp:add_line(
-    pl:truncate(pl:vim_fnamemodify(panel.adapter.ctx.toplevel, ":~"), width - 6),
-    "DiffviewFilePanelRootPath"
-  )
-
-  if conf.show_help_hints and panel.help_mapping then
-    comp:add_text("Help: ", "DiffviewFilePanelPath")
-    comp:add_line(panel.help_mapping, "DiffviewFilePanelCounter")
-    comp:add_line()
+  local sections = 0
+  for _, kind in ipairs({ "conflicting", "working", "staged" }) do
+    if #visible[kind] > 0 then
+      sections = sections + 1
+    end
   end
+  local titles = { conflicting = "Conflicts", working = "Changes", staged = "Staged changes" }
 
-  render_review_header(comp, panel)
-
-  if #visible.conflicting > 0 then
-    comp = panel.components.conflicting.title.comp
-    comp:add_text("Conflicts ", "DiffviewFilePanelTitle")
-    comp:add_text("(" .. #visible.conflicting .. ")", "DiffviewFilePanelCounter")
-    comp:ln()
-
-    render_files(panel.listing_style, panel.components.conflicting.files.comp)
-    panel.components.conflicting.margin.comp:add_line()
-  end
-
-  local has_other_files = #visible.conflicting > 0 or #visible.staged > 0
-
-  if #visible.working > 0 or not has_other_files then
-    comp = panel.components.working.title.comp
-    comp:add_text("Changes ", "DiffviewFilePanelTitle")
-    comp:add_text("(" .. #visible.working .. ")", "DiffviewFilePanelCounter")
-    comp:ln()
-
-    render_files(panel.listing_style, panel.components.working.files.comp)
-    panel.components.working.margin.comp:add_line()
-  end
-
-  if #visible.staged > 0 then
-    comp = panel.components.staged.title.comp
-    comp:add_text("Staged changes ", "DiffviewFilePanelTitle")
-    comp:add_text("(" .. #visible.staged .. ")", "DiffviewFilePanelCounter")
-    comp:ln()
-
-    render_files(panel.listing_style, panel.components.staged.files.comp)
-    panel.components.staged.margin.comp:add_line()
-  end
-
-  if panel.path_args and #panel.path_args > 0 then
-    comp = panel.components.info.title.comp
-    comp:add_line("Showing changes for:", "DiffviewFilePanelTitle")
-
-    comp = panel.components.info.entries.comp
-
-    for _, arg in ipairs(panel.path_args) do
-      local relpath = pl:relative(arg, panel.adapter.ctx.toplevel)
-      if relpath == "" then relpath = "." end
-      comp:add_line(pl:truncate(relpath, width - 5), "DiffviewFilePanelPath")
+  for _, kind in ipairs({ "conflicting", "working", "staged" }) do
+    if #visible[kind] > 0 then
+      if sections > 1 then
+        local comp = panel.components[kind].title.comp
+        comp:add_text(" " .. titles[kind] .. " ", "DiffviewReviewTitle")
+        comp:add_text(tostring(#visible[kind]), "DiffviewReviewMuted")
+        comp:ln()
+      end
+      render_files(panel, panel.components[kind].files.comp, width)
+      if sections > 1 then
+        panel.components[kind].margin.comp:add_line()
+      end
     end
   end
 
-  render_hints(panel.components.hints.comp)
+  if sections == 0 then
+    panel.components.working.title.comp:add_line(
+      panel.files:len() > 0 and " Every file is hidden by a filter" or " No changes",
+      "DiffviewReviewMuted"
+    )
+  end
+
+  if not panel.host and panel.path_args and #panel.path_args > 0 then
+    local comp = panel.components.info.title.comp
+    comp:add_line()
+    comp:add_line(" Showing changes for:", "DiffviewReviewMuted")
+    comp = panel.components.info.entries.comp
+    for _, arg in ipairs(panel.path_args) do
+      local relpath = pl:relative(arg, panel.adapter.ctx.toplevel)
+      if relpath == "" then relpath = "." end
+      comp:add_line(" " .. pl:truncate(relpath, width - 5), "DiffviewReviewMuted")
+    end
+  end
+
+  local p = panel:review_progress()
+  local hidden = 0
+  if panel.hidden.reviewed then
+    for _, file in panel.files:iter() do
+      if file.reviewed and panel:counted(file) then
+        hidden = hidden + 1
+      end
+    end
+  end
+  if hidden > 0 and p.total > 0 then
+    local comp = panel.components.hints.comp
+    comp:add_text(" " .. review.plural(hidden, "reviewed file") .. " hidden · ", "DiffviewReviewMuted")
+    comp:add_text("show", "DiffviewReviewLink")
+    comp:ln()
+  end
 end

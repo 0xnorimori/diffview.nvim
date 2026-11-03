@@ -141,18 +141,21 @@ local function parse_rows(out)
   return rows
 end
 
-local function parse_counts(out)
-  local counts = {}
+local function parse_comments(out)
+  local counts, list = {}, {}
   if out.code ~= 0 or not out.stdout or out.stdout == "" then
-    return counts
+    return counts, nil
   end
   local ok, comments = pcall(vim.json.decode, out.stdout)
   if ok and type(comments) == "table" then
     for _, c in ipairs(comments) do
-      counts[c.file] = (counts[c.file] or 0) + 1
+      if c.status == "open" then
+        counts[c.file] = (counts[c.file] or 0) + 1
+      end
+      list[#list + 1] = c
     end
   end
-  return counts
+  return counts, list
 end
 
 local function cwd(view)
@@ -165,8 +168,8 @@ function M.refresh(view)
   local gen = view._nrev_gen
   nrev.run({ "reviewed", "list" }, cwd(view), function(out)
     local rows = parse_rows(out)
-    nrev.run({ "list", "--json", "--status", "open" }, cwd(view), function(cout)
-      local counts = parse_counts(cout)
+    nrev.run({ "list", "--json", "--status", "all" }, cwd(view), function(cout)
+      local counts, list = parse_comments(cout)
       local files = entries(view)
       M.content_ids(view.adapter, files, function(ids)
         if not view_is_open(view) or view._nrev_gen ~= gen then
@@ -200,6 +203,7 @@ function M.refresh(view)
         end
         M.sync(view)
         if view.panel then
+          view.panel.comments = list or view.panel.comments
           view.panel:refresh_review()
         end
         vim.api.nvim_exec_autocmds("User", {
@@ -255,15 +259,16 @@ function M.sync(view)
 end
 
 function M.counts(view)
-  require("nrev").run({ "list", "--json", "--status", "open" }, cwd(view), function(out)
+  require("nrev").run({ "list", "--json", "--status", "all" }, cwd(view), function(out)
     if not view_is_open(view) then
       return
     end
-    local counts = parse_counts(out)
+    local counts, list = parse_comments(out)
     for _, file in ipairs(entries(view)) do
       file.comments = counts[file.path] or 0
     end
     if view.panel then
+      view.panel.comments = list or view.panel.comments
       view.panel:render()
       view.panel:redraw()
     end

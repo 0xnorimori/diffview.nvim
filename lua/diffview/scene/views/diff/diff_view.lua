@@ -77,6 +77,7 @@ function DiffView:init(opt)
       self.rev_arg or self.adapter:rev_to_pretty_string(self.left, self.right)
     ),
   })
+  self.panel.view = self
 
   self.attached_bufs = {}
   self.annot_store = AnnotationStore()

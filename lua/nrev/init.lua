@@ -401,9 +401,9 @@ function M.delete()
   end)
 end
 
-function M.export()
-  local info = buf_info(vim.api.nvim_get_current_buf())
-  local cwd = info and info.cwd or vim.uv.cwd()
+function M.export(dir)
+  local info = not dir and buf_info(vim.api.nvim_get_current_buf())
+  local cwd = dir or info and info.cwd or vim.uv.cwd()
   M.run({ "list", "--md", "--status", "open" }, cwd, function(out)
     if out.code ~= 0 then
       return

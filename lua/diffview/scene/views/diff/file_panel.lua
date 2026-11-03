@@ -4,11 +4,17 @@ local renderer = require("diffview.renderer")
 local utils = require("diffview.utils")
 local Panel = require("diffview.ui.panel").Panel
 local FileTree = require("diffview.ui.models.file_tree.file_tree").FileTree
+local review = require("diffview.review.panel")
 local api = vim.api
+
+local chrome_ns = api.nvim_create_namespace("diffview_review_panel")
+local chrome_group = api.nvim_create_augroup("diffview_review_panel", { clear = true })
+local CHROME_KEYS = { "q", "<leader>b", "<leader>e", "zc", "zt", "zg", "zr", "gS", "]f", "[f" }
 local M = {}
 
 ---@class TreeOptions
 ---@field flatten_dirs boolean
+---@field group_dirs boolean
 ---@field folder_statuses "never"|"only_folded"|"always"
 
 ---@class FilePanel : Panel
@@ -81,7 +87,314 @@ end
 ---@override
 function FilePanel:open()
   FilePanel.super_class.open(self)
+  self:open_chrome()
   vim.cmd("wincmd =")
+end
+
+---@override
+function FilePanel:close()
+  self:close_chrome()
+  FilePanel.super_class.close(self)
+end
+
+---@override
+function FilePanel:destroy()
+  FilePanel.super_class.destroy(self)
+  for _, buf in ipairs({ self.header_buf, self.footer_buf }) do
+    if buf and api.nvim_buf_is_valid(buf) then
+      api.nvim_buf_delete(buf, { force = true })
+    end
+  end
+end
+
+---@override
+function FilePanel:window_count()
+  local n = 1
+  for _, win in ipairs({ self.header_win, self.footer_win }) do
+    if win and api.nvim_win_is_valid(win) then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+local function valid_win(win)
+  return win and api.nvim_win_is_valid(win)
+end
+
+function FilePanel:chrome_buf(name)
+  local field = name .. "_buf"
+  if self[field] and api.nvim_buf_is_valid(self[field]) then
+    return self[field]
+  end
+  local buf = api.nvim_create_buf(false, true)
+  vim.bo[buf].bufhidden = "hide"
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].filetype = "DiffviewFiles"
+  pcall(api.nvim_buf_set_name, buf, ("diffview:///panels/%d/DiffviewReview%s"):format(require("diffview.ui.panel").Panel.next_uid(), name))
+  local conf = config.get_config()
+  local opt = { silent = true, nowait = true, buffer = buf }
+  for _, mapping in ipairs(conf.keymaps.file_panel) do
+    if vim.tbl_contains(CHROME_KEYS, mapping[2]) then
+      vim.keymap.set(mapping[1], mapping[2], mapping[3], vim.tbl_extend("force", opt, mapping[4] or {}, { buffer = buf }))
+    end
+  end
+  vim.keymap.set("n", "<cr>", function()
+    self:activate_at_cursor()
+  end, opt)
+  vim.keymap.set("n", "<LeftRelease>", function()
+    self:click()
+  end, opt)
+  self[field] = buf
+  return buf
+end
+
+local chrome_winopts = {
+  number = false,
+  relativenumber = false,
+  cursorline = false,
+  list = false,
+  wrap = false,
+  spell = false,
+  signcolumn = "no",
+  foldcolumn = "0",
+  colorcolumn = "",
+  winfixheight = true,
+  winfixwidth = true,
+  winbar = "",
+  scrolloff = 0,
+}
+
+function FilePanel:open_chrome()
+  if not self:is_open() then
+    return
+  end
+  self:chrome_buf("header")
+  self:chrome_buf("footer")
+  self:render_chrome()
+  local config_ = self:get_config()
+  for _, part in ipairs({ { "header", "aboveleft" }, { "footer", "belowright" } }) do
+    local name, dir = part[1], part[2]
+    local field = name .. "_win"
+    local lines = self[name .. "_lines"]
+    if not valid_win(self[field]) then
+      if config_.type == "float" then
+        self[field] = api.nvim_open_win(self[name .. "_buf"], false, self:chrome_float(name))
+      else
+        api.nvim_win_call(self.winid, function()
+          vim.cmd(("noautocmd %s %dsplit"):format(dir, math.max(#lines, 1)))
+          self[field] = api.nvim_get_current_win()
+        end)
+        api.nvim_win_set_buf(self[field], self[name .. "_buf"])
+      end
+      utils.set_local(self[field], chrome_winopts)
+      utils.set_local(self[field], { winhl = FilePanel.winopts.winhl })
+    end
+  end
+  if config_.type == "float" then
+    api.nvim_win_set_config(self.winid, self:chrome_float("tree"))
+  else
+    vim.wo[self.winid].winfixheight = false
+  end
+  api.nvim_create_autocmd("WinClosed", {
+    group = chrome_group,
+    pattern = tostring(self.winid),
+    once = true,
+    callback = function()
+      vim.schedule(function()
+        if not self:is_open() then
+          self:close_chrome()
+        end
+      end)
+    end,
+  })
+  self:redraw_chrome()
+end
+
+function FilePanel:close_chrome()
+  local wins = { self.header_win, self.footer_win }
+  local cur = api.nvim_get_current_win()
+  if vim.tbl_contains(wins, cur) and self:is_open() then
+    api.nvim_set_current_win(self.winid)
+  end
+  for _, win in ipairs(wins) do
+    if valid_win(win) then
+      pcall(api.nvim_win_close, win, true)
+    end
+  end
+  self.header_win, self.footer_win = nil, nil
+end
+
+---@param name "header"|"tree"|"footer"
+function FilePanel:chrome_float(name)
+  local conf = self:get_config()
+  local top = conf.row or 0
+  local height = conf.height
+  local header = #(self.header_lines or {})
+  local footer = #(self.footer_lines or {})
+  local spec = {
+    relative = conf.relative or "editor",
+    win = conf.relative == "win" and conf.win or nil,
+    width = conf.width,
+    col = conf.col or 0,
+    zindex = conf.zindex or 50,
+    style = "minimal",
+    border = conf.border,
+  }
+  if name == "header" then
+    spec.row, spec.height = top, math.max(header, 1)
+  elseif name == "tree" then
+    spec.row, spec.height = top + header, math.max(height - header - footer, 1)
+  else
+    spec.row, spec.height = top + height - footer, math.max(footer, 1)
+  end
+  return spec
+end
+
+function FilePanel:render_chrome()
+  local width = self:infer_width()
+  self.header_lines = review.header(self, width)
+  self.footer_lines = review.footer(self, width, {
+    jump = function(c)
+      self:jump_to_comment(c)
+    end,
+    send = self.host and self.host.send or nil,
+    copy = function()
+      self:copy_comments()
+    end,
+  })
+end
+
+function FilePanel:redraw_chrome()
+  review.write(self.header_buf, chrome_ns, self.header_lines or {})
+  review.write(self.footer_buf, chrome_ns, self.footer_lines or {})
+  if self:get_config().type == "float" then
+    for _, name in ipairs({ "header", "tree", "footer" }) do
+      local win = name == "tree" and self.winid or self[name .. "_win"]
+      if valid_win(win) then
+        api.nvim_win_set_config(win, self:chrome_float(name))
+      end
+    end
+    return
+  end
+  for _, name in ipairs({ "header", "footer" }) do
+    local win = self[name .. "_win"]
+    if valid_win(win) then
+      api.nvim_win_set_height(win, math.max(#self[name .. "_lines"], 1))
+    end
+  end
+end
+
+---@override
+function FilePanel:redraw()
+  FilePanel.super_class.redraw(self)
+  self:redraw_chrome()
+end
+
+---@param winid integer
+---@param row integer
+---@param col integer 0-based byte column
+---@return boolean
+function FilePanel:activate(winid, row, col)
+  local lines
+  if winid == self.header_win then
+    lines = self.header_lines
+  elseif winid == self.footer_win then
+    lines = self.footer_lines
+  elseif winid == self.winid then
+    local comp = self.components and self.components.comp:get_comp_on_line(row)
+    if comp and comp.name == "hints" and comp.height > 0 then
+      self:toggle_filter("reviewed")
+      return true
+    end
+    return false
+  end
+  local action = lines and review.hit(lines, row, col)
+  if action then
+    action()
+    return true
+  end
+  return false
+end
+
+---@return boolean
+function FilePanel:activate_at_cursor()
+  local win = api.nvim_get_current_win()
+  local cursor = api.nvim_win_get_cursor(win)
+  return self:activate(win, cursor[1], cursor[2])
+end
+
+function FilePanel:click()
+  local pos = vim.fn.getmousepos()
+  if pos.winid == 0 or pos.line == 0 then
+    return
+  end
+  local col = vim.fn.virtcol2col(pos.winid, pos.line, pos.column) - 1
+  if pos.winid == self.winid then
+    local comp = self.components and self.components.comp:get_comp_on_line(pos.line)
+    if comp and (comp.name == "file" or comp.name == "dir_name") and self.view then
+      api.nvim_win_set_cursor(self.winid, { pos.line, 0 })
+      local item = self:get_item_at_cursor()
+      if item and type(item.collapsed) == "boolean" then
+        self:toggle_item_fold(item)
+      elseif item then
+        self.view:set_file(item, false)
+      end
+      return
+    end
+  end
+  if pos.winid == self.header_win or pos.winid == self.footer_win then
+    vim.cmd("wincmd p")
+  end
+  self:activate(pos.winid, pos.line, col)
+end
+
+---@param c table
+function FilePanel:jump_to_comment(c)
+  local view = self.view
+  if not view then
+    return
+  end
+  local target
+  for _, file in self.files:iter() do
+    if file.path == c.file then
+      target = file
+      break
+    end
+  end
+  if not target then
+    return
+  end
+  local function place()
+    local layout = view.cur_layout
+    local win = c.side == "old" and layout.a or layout.b
+    if not (win and win:is_valid()) then
+      win = layout.b
+    end
+    if not (win and win:is_valid()) then
+      return
+    end
+    local buf = api.nvim_win_get_buf(win.id)
+    local row = math.max(1, math.min(c.line_start or 1, api.nvim_buf_line_count(buf)))
+    api.nvim_set_current_win(win.id)
+    pcall(api.nvim_win_set_cursor, win.id, { row, 0 })
+  end
+  if view.cur_entry == target and target.opened then
+    place()
+  else
+    view.emitter:once("file_open_post", function()
+      vim.schedule(place)
+    end)
+    view:set_file(target, false)
+  end
+end
+
+function FilePanel:copy_comments()
+  local ok, nrev = pcall(require, "nrev")
+  if not ok then
+    return
+  end
+  nrev.export(self.adapter.ctx.toplevel)
 end
 
 function FilePanel:setup_buffer()
@@ -156,7 +469,7 @@ function FilePanel:update_components()
 
   elseif self.listing_style == "tree" then
     for _, kind in ipairs({ "conflicting", "working", "staged" }) do
-      self.visible_trees[kind] = FileTree(self.visible[kind])
+      self.visible_trees[kind] = FileTree(self.visible[kind], self.tree_options.group_dirs)
       self.visible_trees[kind]:update_statuses()
     end
 
@@ -221,7 +534,9 @@ end
 
 ---@return integer[]
 function FilePanel:buffers()
-  return { self.bufid }
+  return vim.tbl_filter(function(buf)
+    return buf ~= nil and api.nvim_buf_is_valid(buf)
+  end, { self.header_buf, self.bufid, self.footer_buf })
 end
 
 ---@param files FileEntry[]
@@ -230,9 +545,11 @@ function FilePanel:sorted(files)
   if self.listing_style == "list" then
     return files
   end
+  local tree = FileTree(files, self.tree_options.group_dirs)
+  tree.root:sort()
   return vim.tbl_map(function(node)
     return node.data
-  end, FileTree(files).root:leaves())
+  end, tree.root:leaves())
 end
 
 ---@param dir 1|-1
@@ -593,9 +910,10 @@ function FilePanel:review_progress()
     if self:counted(file) then
       entry.counted = true
       entry.reviewed = entry.reviewed and file.reviewed
-      if file.stats and file.stats.additions then
-        p.additions = p.additions + file.stats.additions
-        p.deletions = p.deletions + file.stats.deletions
+      local additions, deletions = review.stats(file)
+      if additions then
+        p.additions = p.additions + additions
+        p.deletions = p.deletions + deletions
       end
     end
   end
@@ -620,6 +938,7 @@ end
 
 function FilePanel:render()
   require("diffview.scene.views.diff.render")(self)
+  self:render_chrome()
 end
 
 M.FilePanel = FilePanel

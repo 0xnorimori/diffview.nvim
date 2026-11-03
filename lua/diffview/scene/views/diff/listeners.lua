@@ -166,6 +166,9 @@ return function(view)
       view.panel:highlight_prev_file()
     end,
     select_entry = function()
+      if view.panel:activate_at_cursor() then
+        return
+      end
       if view.panel:is_open() then
         ---@type any
         local item = view.panel:get_item_at_cursor()

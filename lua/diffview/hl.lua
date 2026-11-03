@@ -417,6 +417,43 @@ function M.get_colors()
   }
 end
 
+local function blend(fg, bg, alpha)
+  if not (fg and bg and fg:match("^#%x%x%x%x%x%x$") and bg:match("^#%x%x%x%x%x%x$")) then
+    return nil
+  end
+  local out = {}
+  for i = 2, 6, 2 do
+    local a, b = tonumber(fg:sub(i, i + 1), 16), tonumber(bg:sub(i, i + 1), 16)
+    out[#out + 1] = string.format("%02x", math.floor(a * alpha + b * (1 - alpha) + 0.5))
+  end
+  return "#" .. table.concat(out)
+end
+
+function M.get_review_groups()
+  local fg = M.get_fg("Normal")
+  local bg = M.get_bg("Normal")
+  local surface = blend(fg, bg, 0.10)
+  local accent = M.get_fg({ "DiffviewFilePanelTitle", "Title" })
+  local success = M.get_fg({ "DiffviewFilePanelInsertions", "diffAdded", "DiagnosticOk" })
+  local danger = M.get_fg({ "DiffviewFilePanelDeletions", "diffRemoved", "DiagnosticError" })
+  local muted = M.get_fg({ "DiffviewFilePanelKeyHint", "Comment" })
+  local add_bg = M.get_bg("DiffAdd") or blend(success, bg, 0.15)
+  local delete_bg = M.get_bg("DiffDelete") or blend(danger, bg, 0.15)
+
+  return {
+    ReviewTitle = { fg = fg, style = "bold" },
+    ReviewCounter = { fg = fg, style = "bold" },
+    ReviewChip = { fg = muted, bg = surface },
+    ReviewKey = { fg = fg, bg = surface },
+    ReviewButton = { fg = fg, bg = surface, style = "bold" },
+    ReviewButtonPrimary = { fg = bg, bg = accent, style = "bold" },
+    ReviewChipNew = { fg = success, bg = add_bg },
+    ReviewChipDeleted = { fg = danger, bg = delete_bg },
+    ReviewDone = { fg = success, bg = add_bg, style = "bold" },
+    ReviewActive = { bg = M.get_bg({ "Visual", "PmenuSel" }) },
+  }
+end
+
 function M.get_hl_groups()
   local colors = M.get_colors()
 
@@ -454,6 +491,24 @@ M.hl_links = {
   FilePanelChip = "Comment",
   FilePanelChipOn = "PmenuSel",
   FilePanelKeyHint = "Comment",
+  ReviewText = "Normal",
+  ReviewMuted = "DiffviewFilePanelKeyHint",
+  ReviewFaint = "LineNr",
+  ReviewAccent = "DiffviewFilePanelTitle",
+  ReviewSuccess = "DiffviewFilePanelInsertions",
+  ReviewDanger = "DiffviewFilePanelDeletions",
+  ReviewWarning = "DiffviewFilePanelStale",
+  ReviewCount = "DiagnosticVirtualTextWarn",
+  ReviewBar = "DiffviewReviewAccent",
+  ReviewBarDone = "DiffviewReviewSuccess",
+  ReviewBarTodo = "DiffviewReviewFaint",
+  ReviewCheckOn = "DiffviewReviewAccent",
+  ReviewCheckOff = "DiffviewReviewMuted",
+  ReviewFolder = "DiffviewReviewText",
+  ReviewLink = "DiffviewReviewAccent",
+  ReviewBorder = "WinSeparator",
+  ReviewActiveBar = "DiffviewReviewAccent",
+  ReviewResolved = "DiffviewReviewFaint",
   WinBarLabel = "DiffviewFilePanelTitle",
   WinBarTag = "Comment",
   WinBarTagAdded = "diffAdded",
@@ -507,6 +562,11 @@ function M.setup()
 
   for from, to in pairs(M.hl_links) do
     M.hi_link("Diffview" .. from, to, { default = true })
+  end
+
+  for name, v in pairs(M.get_review_groups()) do
+    v = vim.tbl_extend("force", v, { default = true })
+    M.hi("Diffview" .. name, v)
   end
 
   M.update_diff_hl()

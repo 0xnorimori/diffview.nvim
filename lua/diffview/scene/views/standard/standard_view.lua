@@ -101,7 +101,7 @@ function StandardView:use_layout(layout)
 
   self.cur_layout.pivot_producer = function()
     local was_open = self.panel:is_open()
-    local was_only_win = was_open and #utils.tabpage_list_normal_wins(self.tabpage) == 1
+    local was_only_win = was_open and #utils.tabpage_list_normal_wins(self.tabpage) == self.panel:window_count()
     self.panel:close()
 
     -- If the panel was the only window before closing, then a temp window was

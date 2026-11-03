@@ -74,6 +74,7 @@ M.defaults = {
     listing_style = "tree",
     tree_options = {
       flatten_dirs = true,
+      group_dirs = true,
       folder_statuses = "only_folded"
     },
     win_config = {

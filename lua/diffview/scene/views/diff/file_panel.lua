@@ -82,6 +82,47 @@ function FilePanel:init(adapter, files, path_args, rev_pretty_name)
       self:setup_buffer()
     end,
   })
+
+  self.resize_au = api.nvim_create_autocmd({ "WinResized", "VimResized" }, {
+    group = chrome_group,
+    callback = function(ev)
+      if not self:is_open() then
+        return
+      end
+      local mine = ev.event == "VimResized"
+      for _, win in ipairs(mine and {} or vim.v.event.windows or {}) do
+        if win == self.winid or win == self.header_win or win == self.footer_win then
+          mine = true
+        end
+      end
+      if mine then
+        self:render()
+        self:redraw()
+      end
+    end,
+  })
+end
+
+---@override
+function FilePanel:get_config()
+  local conf = FilePanel.super_class.get_config(self)
+  if not self.drawer then
+    return conf
+  end
+  local top = vim.o.showtabline == 2 and 1 or 0
+  local bottom = vim.o.cmdheight + (vim.o.laststatus > 0 and 1 or 0)
+  return {
+    type = "float",
+    relative = "editor",
+    row = top,
+    col = 0,
+    width = math.max(math.min(conf.width or 38, vim.o.columns - 2), 10),
+    height = math.max(vim.o.lines - top - bottom, 3),
+    zindex = 50,
+    style = "minimal",
+    border = { "", "", "", "│", "", "", "", "" },
+    win_opts = conf.win_opts or {},
+  }
 end
 
 ---@override
@@ -99,6 +140,7 @@ end
 
 ---@override
 function FilePanel:destroy()
+  pcall(api.nvim_del_autocmd, self.resize_au)
   FilePanel.super_class.destroy(self)
   for _, buf in ipairs({ self.header_buf, self.footer_buf }) do
     if buf and api.nvim_buf_is_valid(buf) then
@@ -109,6 +151,9 @@ end
 
 ---@override
 function FilePanel:window_count()
+  if self.drawer then
+    return 0
+  end
   local n = 1
   for _, win in ipairs({ self.header_win, self.footer_win }) do
     if win and api.nvim_win_is_valid(win) then
@@ -144,6 +189,11 @@ function FilePanel:chrome_buf(name)
   end, opt)
   vim.keymap.set("n", "<LeftRelease>", function()
     self:click()
+  end, opt)
+  vim.keymap.set("n", "<esc>", function()
+    if self.drawer then
+      self:close()
+    end
   end, opt)
   self[field] = buf
   return buf
@@ -193,6 +243,10 @@ function FilePanel:open_chrome()
   end
   if config_.type == "float" then
     api.nvim_win_set_config(self.winid, self:chrome_float("tree"))
+    for _, win in ipairs({ self.header_win, self.winid, self.footer_win }) do
+      vim.wo[win].winhl = "Normal:DiffviewNormal,NormalFloat:DiffviewNormal,FloatBorder:DiffviewWinSeparator,"
+        .. "EndOfBuffer:DiffviewEndOfBuffer,CursorLine:DiffviewCursorLine,SignColumn:DiffviewNormal"
+    end
   else
     vim.wo[self.winid].winfixheight = false
   end
@@ -399,6 +453,11 @@ end
 
 function FilePanel:setup_buffer()
   local conf = config.get_config()
+  vim.keymap.set("n", "<esc>", function()
+    if self.drawer then
+      self:close()
+    end
+  end, { silent = true, nowait = true, buffer = self.bufid })
 
   local default_opt = { silent = true, nowait = true, buffer = self.bufid }
   for _, mapping in ipairs(conf.keymaps.file_panel) do

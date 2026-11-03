@@ -1803,7 +1803,13 @@ set_filter({name}, {shown}, {tab})           *diffview-clubmate.set_filter()*
 set_layout({layout}, {tab})                  *diffview-clubmate.set_layout()*
         `"split"` shows the two diff panes, `"inline"` one pane with removed
         lines (deleted fill, old line numbers) above the added ones. Files
-        that show up later keep the chosen layout.
+        that show up later keep the chosen layout. Inline closes the file
+        panel and shows a one-line strip in the tabline: `☰ Review`, the
+        progress bar, `N/M · K open` and `‹ file n of m ›`; a click on ‹ or ›
+        opens the previous or next file, on `☰ Review` the panel. The panel
+        (`<leader>b`, |diffview-clubmate.set_panel()|) then opens as a drawer
+        floating over the left edge; `<Esc>` in it closes it. Back to
+        `"split"` the panel returns if it was shown before.
 
 subscribe({chan})                             *diffview-clubmate.subscribe()*
         Sends `rpcnotify(chan, "clubmate", { event = "review", kind, path,

@@ -75,6 +75,10 @@ local function notify(kind, path, tab)
       subscribers[chan] = nil
     end
   end
+  local state = reviews[api.nvim_get_current_tabpage()]
+  if state and state.layout == "inline" then
+    vim.cmd("redrawtabline")
+  end
 end
 
 local function resolve(tab)
@@ -171,14 +175,24 @@ local function refresh_counts(view, state)
   end)
 end
 
+local STRIP = "%!v:lua.require'diffview.clubmate'.strip()"
+
 local function apply_tabline()
-  if reviews[api.nvim_get_current_tabpage()] then
+  local state = reviews[api.nvim_get_current_tabpage()]
+  if state then
     if saved_tabline == nil then
-      saved_tabline = vim.o.showtabline
+      saved_tabline = { show = vim.o.showtabline, line = vim.o.tabline }
     end
-    vim.o.showtabline = 0
+    if state.layout == "inline" then
+      vim.o.tabline = STRIP
+      vim.o.showtabline = 2
+    else
+      vim.o.showtabline = 0
+      vim.o.tabline = saved_tabline.line
+    end
   elseif saved_tabline ~= nil then
-    vim.o.showtabline = saved_tabline
+    vim.o.showtabline = saved_tabline.show
+    vim.o.tabline = saved_tabline.line
     saved_tabline = nil
   end
 end
@@ -711,7 +725,11 @@ local function set_panel(visible, tab)
   end
   if visible then
     focus(t)
-    view.panel:open()
+    if view.panel.drawer then
+      view.panel:focus()
+    else
+      view.panel:open()
+    end
   else
     view.panel:close()
   end
@@ -725,10 +743,84 @@ local function set_layout(layout, tab)
   if layout ~= "inline" and layout ~= "split" then
     error("unknown layout: " .. tostring(layout), 0)
   end
+  local was = state.layout
   state.layout = layout
+  if layout == "inline" and was ~= "inline" then
+    state.panel_shown = view.panel:is_open()
+    view.panel:close()
+    view.panel.drawer = true
+  elseif layout == "split" and was == "inline" then
+    view.panel:close()
+    view.panel.drawer = false
+    if state.panel_shown ~= false then
+      focus(t)
+      view.panel:open()
+    end
+  end
+  if api.nvim_get_current_tabpage() == t then
+    apply_tabline()
+  end
   if convert(view, state) and view.cur_entry then
     open_file(view, state, t, view.cur_entry)
   end
+end
+
+local function strip_esc(text)
+  return (text:gsub("%%", "%%%%"))
+end
+
+function M.strip()
+  local tab = api.nvim_get_current_tabpage()
+  local view, state = resolve(tab)
+  if not view or tab ~= view.tabpage then
+    return ""
+  end
+  local panel = view.panel
+  local p = panel:review_progress()
+  local open = review.open_comments(panel)
+  local cells = 10
+  local filled = p.total > 0 and math.floor(cells * p.reviewed / p.total + 0.5) or 0
+  local done = review.is_done(p)
+  local files = panel:ordered_file_list()
+  local cur = state.pending_file or view.cur_entry
+  local n = utils.vec_indexof(files, cur)
+  local name = cur and vim.fn.fnamemodify(cur.path, ":t") or ""
+  return table.concat({
+    "%3@v:lua.DiffviewReviewStrip@%#DiffviewReviewMuted# ☰ %#DiffviewReviewTitle#Review%X ",
+    done and "%#DiffviewReviewBarDone#" or "%#DiffviewReviewBar#", string.rep("━", filled),
+    "%#DiffviewReviewBarTodo#", string.rep("━", cells - filled), " ",
+    "%#DiffviewReviewCounter#", ("%d/%d"):format(p.reviewed, p.total),
+    "%#DiffviewReviewMuted# · ", open > 0 and "%#DiffviewReviewWarning#" or "%#DiffviewReviewMuted#", open .. " open",
+    "%#DiffviewReviewMuted#%=",
+    "%1@v:lua.DiffviewReviewStrip@‹%X ",
+    "%#DiffviewReviewText#", strip_esc(name), " ",
+    "%#DiffviewReviewMuted#", ("%s of %d"):format(n == -1 and "–" or tostring(n), #files),
+    " %2@v:lua.DiffviewReviewStrip@›%X ",
+  })
+end
+
+function _G.DiffviewReviewStrip(minwid)
+  local tab = api.nvim_get_current_tabpage()
+  local view, state = resolve(tab)
+  if not view or tab ~= view.tabpage then
+    return
+  end
+  if minwid == 3 then
+    view.panel:toggle(true)
+    return
+  end
+  local files = view.panel:ordered_file_list()
+  if #files == 0 then
+    return
+  end
+  local i = utils.vec_indexof(files, state.pending_file or view.cur_entry)
+  local target
+  if minwid == 2 then
+    target = files[i == -1 and 1 or i % #files + 1]
+  else
+    target = files[i == -1 and #files or (i - 2) % #files + 1]
+  end
+  open_file(view, state, tab, target)
 end
 
 local function close(tab)

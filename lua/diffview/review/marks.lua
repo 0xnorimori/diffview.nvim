@@ -178,7 +178,7 @@ function M.refresh(view)
         local toggled = {}
         for k, t in pairs(view._nrev_toggled or {}) do
           if not t.sent or t.gen == gen then
-            toggled[k] = t.flag
+            toggled[k] = t
           end
         end
         view._nrev_toggled = {}
@@ -195,9 +195,9 @@ function M.refresh(view)
         view._nrev_rows = rows
         view._nrev_synced = flags
         for _, file in ipairs(files) do
-          local flag = toggled[key(file)]
-          if flag ~= nil and flag ~= file.reviewed then
-            file.reviewed = flag
+          local t = toggled[key(file)]
+          if t and t.flag ~= file.reviewed and (not t.id or t.id == file.content_id) then
+            file.reviewed = t.flag
             file.stale = false
           end
         end
@@ -234,7 +234,7 @@ function M.sync(view)
     local k = key(file)
     local flag = file.reviewed and true or false
     if (snapshot[k] or false) ~= flag then
-      view._nrev_toggled[k] = { flag = flag, gen = view._nrev_gen, sent = file.content_id ~= nil }
+      view._nrev_toggled[k] = { flag = flag, gen = view._nrev_gen, sent = file.content_id ~= nil, id = file.content_id }
       if file.content_id then
         if flag then
           nrev.run({ "reviewed", "set", file.path, "--content-id", file.content_id }, cwd(view), nil)

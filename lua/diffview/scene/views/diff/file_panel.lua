@@ -30,7 +30,7 @@ local M = {}
 ---@field constrain_cursor function
 ---@field help_mapping string
 ---@field hidden { code: boolean, tests: boolean, generated: boolean, reviewed: boolean }
----@field host? { send: function, meta: { subtitle: string?, recipient: string?, sent: integer? } }
+---@field host? { send: function, meta: { subtitle: string?, base: string?, changes: string?, recipient: string?, sent: integer? } }
 ---@field visible { conflicting: FileEntry[], working: FileEntry[], staged: FileEntry[] }
 ---@field visible_trees { conflicting: FileTree, working: FileTree, staged: FileTree }
 local FilePanel = oop.create_class("FilePanel", Panel)

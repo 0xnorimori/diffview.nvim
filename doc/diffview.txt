@@ -1806,9 +1806,12 @@ reviews()                                       *diffview-clubmate.reviews()*
         longer wants.
 
 set_meta({tab}, {meta})                        *diffview-clubmate.set_meta()*
-        What the panel prints: `{ subtitle, recipient, sent }`. {subtitle}
-        follows "Review" in the header, {recipient} names who the comments go
-        to once every file is reviewed, {sent} the number of comments sent.
+        What the panel prints: `{ subtitle, base, changes, recipient, sent }`.
+        {subtitle} follows "Review" in the header, {base} and {changes} are
+        the header's `base` and `changes` lines (what the left and the right
+        side are; with {base} set and no {subtitle} the title is only
+        "Review"), {recipient} names who the comments go to once every file is
+        reviewed, {sent} the number of comments sent.
         Note {tab} comes first. Call it again whenever one of them changes.
 
 filters({tab})                                  *diffview-clubmate.filters()*
@@ -1883,7 +1886,8 @@ file tree (the only part that scrolls) and a pinned footer. With
 the column shows one statusline, the footer's.
 
 Header: `Review` and a subtitle (|diffview-clubmate.set_meta()|, else the
-repository and rev), a progress bar with `N / M reviewed`, `+A −D` and the
+repository and rev), the `base` and `changes` lines the host sets (each
+wraps under its value), a progress bar with `N / M reviewed`, `+A −D` and the
 open comment count, and the filters `Show ☑ code ☐ tests N ☐ generated N`
 and `☑ reviewed`. Once every shown file is reviewed a done box reads
 `✓ All M files reviewed · K comments for <recipient>`, after a send

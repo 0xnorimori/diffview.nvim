@@ -193,6 +193,9 @@ function M.subtitle(panel)
   if meta.subtitle and meta.subtitle ~= "" then
     return meta.subtitle
   end
+  if meta.base then
+    return ""
+  end
   local name = vim.fn.fnamemodify(panel.adapter.ctx.toplevel, ":t")
   if panel.rev_pretty_name and panel.rev_pretty_name ~= "" then
     return name .. " · " .. panel.rev_pretty_name
@@ -237,6 +240,16 @@ function M.header(panel, width)
     title:add(" " .. M.truncate(subtitle, inner - 7), "DiffviewReviewMuted")
   end
   lines[#lines + 1] = title
+  for _, side in ipairs({ { "base", meta.base }, { "changes", meta.changes } }) do
+    if side[2] and side[2] ~= "" then
+      for i, row in ipairs(M.wrap(side[2], inner - 8)) do
+        lines[#lines + 1] = M.line()
+          :add(" ")
+          :add(i == 1 and ("%-8s"):format(side[1]) or string.rep(" ", 8), "DiffviewReviewMuted")
+          :add(M.truncate(row, inner - 8), "DiffviewReviewText")
+      end
+    end
+  end
 
   local counter = ("%d / %d"):format(p.reviewed, p.total)
   local bar = math.max(inner - api.nvim_strwidth(counter .. " reviewed") - 2, 4)

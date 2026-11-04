@@ -698,6 +698,8 @@ local function set_meta(tab, meta)
   end
   meta = meta or {}
   state.meta.subtitle = meta.subtitle
+  state.meta.base = meta.base
+  state.meta.changes = meta.changes
   state.meta.recipient = meta.recipient
   state.meta.sent = meta.sent
   redraw_panel(view)

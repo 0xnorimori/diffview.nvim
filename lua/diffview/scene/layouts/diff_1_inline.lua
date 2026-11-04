@@ -109,7 +109,7 @@ local function removed_lines(old, start, count, gutter, width, notes)
     local pad = math.max(width - vim.fn.strdisplaywidth(text), 0)
     table.insert(out, {
       { sign, "DiffviewInlineGutter" },
-      { text .. string.rep(" ", pad), "DiffDelete" },
+      { text .. string.rep(" ", pad), "DiffviewInlineDeleted" },
     })
     for _, line in ipairs(notes[i] or {}) do
       table.insert(out, { { string.rep(" ", gutter), "Normal" }, unpack(line) })

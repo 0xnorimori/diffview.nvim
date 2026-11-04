@@ -1831,6 +1831,9 @@ set_layout({layout}, {tab})                  *diffview-clubmate.set_layout()*
         floating over the left edge; `<Esc>` in it closes it. Back to
         `"split"` the panel returns if it was shown before. Its winbar reads
         the path, an `inline` chip and `<left label> → <right label>`.
+        Removed lines draw in `DiffviewInlineDeleted` (the |hl-DiffDelete|
+        colours, also with `enhanced_diff_hl`, whose dimmed DiffDelete is
+        meant for the split layout's filler rows).
 
         The inline pane follows edits: a moment after the buffer changes the
         added and removed lines are drawn again. The removed lines above

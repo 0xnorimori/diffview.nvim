@@ -265,7 +265,9 @@ describe("diffview.clubmate review profile", function()
         table.insert(added, { m[2], d.line_hl_group })
       end
     end
-    eq({ { 1, true, "func A() {}", "DiffDelete" } }, removed)
+    eq({ { 1, true, "func A() {}", "DiffviewInlineDeleted" } }, removed)
+    local deleted = vim.api.nvim_get_hl(0, { name = "DiffviewInlineDeleted", link = false })
+    eq(vim.api.nvim_get_hl(0, { name = "DiffDelete" }).bg, deleted.bg)
     eq({ { 1, "DiffAdd" }, { 2, "DiffAdd" } }, added)
     eq(false, vim.wo[win].diff)
     eq("%<a.go  inline  HEAD → Working tree", vim.trim(bar_text(win)))

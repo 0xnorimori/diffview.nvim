@@ -516,6 +516,7 @@ M.hl_links = {
   WinBarPath = "Normal",
   FillMessage = "Comment",
   InlineGutter = "diffRemoved",
+  InlineDeleted = "DiffviewDiffAddAsDelete",
   InlineAdded = "diffAdded",
   Annotation = "DiagnosticSignWarn",
   AnnotationText = "DiagnosticVirtualTextWarn",

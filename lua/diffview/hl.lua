@@ -450,6 +450,7 @@ function M.get_review_groups()
     ReviewChipNew = { fg = success, bg = add_bg },
     ReviewChipDeleted = { fg = danger, bg = delete_bg },
     ReviewDone = { fg = success, bg = add_bg, style = "bold" },
+    ReviewLink = { fg = fg, style = "underline" },
     ReviewActive = { bg = M.get_bg({ "Visual", "PmenuSel" }) },
   }
 end
@@ -505,7 +506,6 @@ M.hl_links = {
   ReviewCheckOn = "DiffviewReviewAccent",
   ReviewCheckOff = "DiffviewReviewMuted",
   ReviewFolder = "DiffviewReviewText",
-  ReviewLink = "DiffviewReviewAccent",
   ReviewBorder = "WinSeparator",
   ReviewActiveBar = "DiffviewReviewAccent",
   ReviewResolved = "DiffviewReviewFaint",

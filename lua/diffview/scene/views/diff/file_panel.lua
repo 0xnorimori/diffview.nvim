@@ -83,6 +83,15 @@ function FilePanel:init(adapter, files, path_args, rev_pretty_name)
     end,
   })
 
+  self.focus_au = api.nvim_create_autocmd({ "WinEnter", "WinLeave" }, {
+    group = chrome_group,
+    callback = function(ev)
+      if self:is_open() and api.nvim_get_current_win() == self.winid then
+        vim.wo[self.winid].cursorline = ev.event == "WinEnter"
+      end
+    end,
+  })
+
   self.resize_au = api.nvim_create_autocmd({ "WinResized", "VimResized" }, {
     group = chrome_group,
     callback = function(ev)
@@ -141,6 +150,7 @@ end
 ---@override
 function FilePanel:destroy()
   pcall(api.nvim_del_autocmd, self.resize_au)
+  pcall(api.nvim_del_autocmd, self.focus_au)
   FilePanel.super_class.destroy(self)
   for _, buf in ipairs({ self.header_buf, self.footer_buf }) do
     if buf and api.nvim_buf_is_valid(buf) then
@@ -221,6 +231,7 @@ function FilePanel:open_chrome()
   end
   self:chrome_buf("header")
   self:chrome_buf("footer")
+  vim.wo[self.winid].cursorline = api.nvim_get_current_win() == self.winid
   self:render_chrome()
   local config_ = self:get_config()
   for _, part in ipairs({ { "header", "aboveleft" }, { "footer", "belowright" } }) do
@@ -493,10 +504,14 @@ function FilePanel:update_components()
   local staged_files
 
   self.visible = {}
+  self.shown = {}
   self.visible_trees = {}
   for _, kind in ipairs({ "conflicting", "working", "staged" }) do
     self.visible[kind] = vim.tbl_filter(function(file)
       return self:visible_file(file)
+    end, self.files[kind])
+    self.shown[kind] = vim.tbl_filter(function(file)
+      return self:counted(file)
     end, self.files[kind])
   end
 
@@ -528,7 +543,7 @@ function FilePanel:update_components()
 
   elseif self.listing_style == "tree" then
     for _, kind in ipairs({ "conflicting", "working", "staged" }) do
-      self.visible_trees[kind] = FileTree(self.visible[kind], self.tree_options.group_dirs)
+      self.visible_trees[kind] = FileTree(self.shown[kind], self.tree_options.group_dirs)
       self.visible_trees[kind]:update_statuses()
     end
 
@@ -663,9 +678,11 @@ function FilePanel:ordered_file_list()
       self.visible_trees.staged.root:leaves()
     )
 
-    return vim.tbl_map(function(node)
+    return vim.tbl_filter(function(file)
+      return self:visible_file(file)
+    end, vim.tbl_map(function(node)
       return node.data
-    end, nodes) --[[@as vector ]]
+    end, nodes)) --[[@as vector ]]
   end
 end
 

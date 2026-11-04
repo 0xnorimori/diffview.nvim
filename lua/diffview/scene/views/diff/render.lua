@@ -100,9 +100,12 @@ local kind_chips = {
 ---@param show_path boolean
 ---@param depth integer
 ---@param width integer
-local function render_file(comp, show_path, depth, width)
+local function render_file(comp, show_path, depth, width, panel)
   ---@type FileEntry
   local file = comp.context
+  if panel and not panel:visible_file(file) then
+    return
+  end
   local left = {
     file.active and { "▎", "DiffviewReviewActiveBar" } or { " " },
     { string.rep(" ", depth * 2) },
@@ -155,9 +158,9 @@ end
 ---@param depth integer
 ---@param comp RenderComponent
 ---@param width integer
-local function render_file_tree_recurse(depth, comp, width)
+local function render_file_tree_recurse(depth, comp, width, panel)
   if comp.name == "file" then
-    render_file(comp, false, depth, width)
+    render_file(comp, false, depth, width, panel)
     return
   end
 
@@ -185,7 +188,7 @@ local function render_file_tree_recurse(depth, comp, width)
 
   if not ctx.collapsed then
     for _, item in ipairs(items.components) do
-      render_file_tree_recurse(depth + 1, item, width)
+      render_file_tree_recurse(depth + 1, item, width, panel)
     end
   end
 end
@@ -201,7 +204,7 @@ local function render_files(panel, comp, width)
     return
   end
   for _, c in ipairs(comp.components) do
-    render_file_tree_recurse(0, c, width)
+    render_file_tree_recurse(0, c, width, panel)
   end
 end
 
@@ -267,16 +270,17 @@ return function(panel)
 
   render_tip(panel.components.path.comp, panel, width)
 
+  local listed = panel.listing_style == "tree" and panel.shown or visible
   local sections = 0
   for _, kind in ipairs({ "conflicting", "working", "staged" }) do
-    if #visible[kind] > 0 then
+    if #listed[kind] > 0 then
       sections = sections + 1
     end
   end
   local titles = { conflicting = "Conflicts", working = "Changes", staged = "Staged changes" }
 
   for _, kind in ipairs({ "conflicting", "working", "staged" }) do
-    if #visible[kind] > 0 then
+    if #listed[kind] > 0 then
       if sections > 1 then
         local comp = panel.components[kind].title.comp
         comp:add_text(" " .. titles[kind] .. " ", "DiffviewReviewTitle")

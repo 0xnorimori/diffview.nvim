@@ -299,7 +299,9 @@ function M.header(panel, width)
     end
   end
 
-  lines[#lines + 1] = border(width)
+  if panel.drawer then
+    lines[#lines + 1] = border(width)
+  end
   return lines
 end
 
@@ -336,7 +338,7 @@ end
 ---@param actions { jump: fun(c: table), send: function?, copy: function }
 function M.footer(panel, width, actions)
   local p = panel:review_progress()
-  local lines = { border(width) }
+  local lines = { panel.drawer and border(width) or nil }
   local comments = M.order_comments(panel.comments)
 
   if #comments > 0 then

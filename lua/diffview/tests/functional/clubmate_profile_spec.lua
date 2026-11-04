@@ -215,6 +215,21 @@ describe("diffview.clubmate review profile", function()
     eq(view().cur_layout.a.id, vim.api.nvim_get_current_win())
   end)
 
+  it("keeps a colour scheme's own DiffviewDiffAddAsDelete", function()
+    local function scheme(own)
+      vim.cmd("hi clear")
+      vim.api.nvim_set_hl(0, "DiffDelete", { fg = 0xa54c43, bg = 0x382722 })
+      if own then
+        vim.api.nvim_set_hl(0, "DiffviewDiffAddAsDelete", { bg = 0x382722 })
+      end
+      vim.api.nvim_exec_autocmds("ColorScheme", {})
+      local h = vim.api.nvim_get_hl(0, { name = "DiffviewInlineDeleted", link = false })
+      return { h.fg, h.bg }
+    end
+    eq({ nil, 0x382722 }, scheme(true))
+    eq({ 0xa54c43, 0x382722 }, scheme(false))
+  end)
+
   it("keeps the winbar of a plain diffview on the filler side", function()
     clubmate.close(tab)
     require("diffview").setup({ use_icons = false, view = { default = { winbar_info = true } } })

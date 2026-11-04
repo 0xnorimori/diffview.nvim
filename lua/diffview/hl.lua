@@ -547,7 +547,7 @@ function M.update_diff_hl()
   local bg = M.get_bg("DiffDelete", true) or "NONE"
   local style = M.get_style("DiffDelete", true) or "NONE"
 
-  M.hi("DiffviewDiffAddAsDelete", { fg = fg, bg = bg, style = style })
+  M.hi("DiffviewDiffAddAsDelete", { fg = fg, bg = bg, style = style, default = true })
   M.hi_link("DiffviewDiffDeleteDim", "Comment", { default = true })
 
   if config.get_config().enhanced_diff_hl then

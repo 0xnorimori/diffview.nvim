@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -123,6 +124,34 @@ CREATE TABLE comments (
 	cs, err := s.List(ListFilter{Status: "all"})
 	if err != nil || len(cs) != 1 || cs[0].ID != id {
 		t.Fatalf("list after recovery: %v %+v", err, cs)
+	}
+}
+
+func TestReadLeavesNoSidecarFiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "review.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec("PRAGMA journal_mode=WAL; CREATE TABLE t (x INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	if _, err := s.List(ListFilter{Status: "all"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, side := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(path + side); !os.IsNotExist(err) {
+			t.Fatalf("%s exists while reading: %v", side, err)
+		}
 	}
 }
 

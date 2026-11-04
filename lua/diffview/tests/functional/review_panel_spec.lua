@@ -100,6 +100,19 @@ describe("diffview file panel review", function()
     eq(false, vim.api.nvim_win_is_valid(p.footer_win or -1))
   end)
 
+  it("draws one statusline under the panel, rules between its parts", function()
+    vim.o.laststatus = 2
+    open()
+    local p = panel()
+    local function status(win)
+      return vim.api.nvim_eval_statusline(vim.wo[win].statusline, { winid = win }).str
+    end
+    local width = vim.api.nvim_win_get_width(p.winid)
+    eq(string.rep("─", width), status(p.header_win))
+    eq(string.rep("─", width), status(p.winid))
+    eq(vim.go.statusline, vim.wo[p.footer_win].statusline)
+  end)
+
   it("draws a row per file with its state, kind chip and right-aligned counts", function()
     open()
     clubmate.set_reviewed("a.go", true, tab)

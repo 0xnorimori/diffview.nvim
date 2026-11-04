@@ -61,8 +61,27 @@ describe("diffview.clubmate v3", function()
   end)
 
   it("keeps the panel of a host-opened review visible", function()
-    eq(3, clubmate.version)
+    eq(4, clubmate.version)
     assert.is_truthy(view().panel:is_open())
+  end)
+
+  it("lists the open host reviews so a restarted host can adopt them", function()
+    clubmate.set_layout("inline", tab)
+    local other = clubmate.open({ cwd = repo, base = "HEAD", excludes = { "*_test.go" }, labels = { left = "L" } })
+    eq({
+      {
+        tab = tab, cwd = vim.uv.fs_realpath(repo), base = "HEAD", excludes = {}, layout = "inline",
+        labels = { left = "HEAD", right = "Working tree" },
+      },
+      {
+        tab = other, cwd = vim.uv.fs_realpath(repo), base = "HEAD", excludes = { "*_test.go" }, layout = "split",
+        labels = { left = "L", right = "Working tree" },
+      },
+    }, clubmate.reviews())
+    clubmate.close(other)
+    eq({ tab }, vim.tbl_map(function(r)
+      return r.tab
+    end, clubmate.reviews()))
   end)
 
   it("prints the subtitle and recipient the host sets", function()

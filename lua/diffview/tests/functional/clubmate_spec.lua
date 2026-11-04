@@ -74,7 +74,6 @@ describe("diffview.clubmate", function()
   end)
 
   it("lists modified and untracked entries with stats, category and kind against a base", function()
-    eq(3, clubmate.version)
     eq({
       {
         path = "a.go",
@@ -415,7 +414,7 @@ describe("diffview.clubmate", function()
 
   local nrev_it = helpers.nrev_it
 
-  nrev_it("reflects nrev reviewed marks and open comment counts", function()
+  nrev_it("reflects nrev reviewed marks and open comment counts, also of comments added outside nvim", function()
     clubmate.close(tab)
     require("nrev").setup({ bin = nrev_bin })
     local function comment(text)
@@ -448,11 +447,23 @@ describe("diffview.clubmate", function()
         sent[i] = nil
       end
       comment("second")
-      vim.api.nvim_exec_autocmds("User", { pattern = "NrevCommentsChanged" })
       wait_for(function()
         return was_sent(sent, "comments", nil, tab)
       end)
       eq(2, entry("a.go").comments)
+      wait_for(function()
+        local ns = vim.api.nvim_get_namespaces().nrev
+        local buf = view().cur_layout.b.file.bufnr
+        for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do
+          for _, line in ipairs(m[4].virt_lines or {}) do
+            for _, chunk in ipairs(line) do
+              if chunk[1]:find("second", 1, true) then
+                return true
+              end
+            end
+          end
+        end
+      end)
     end)
   end)
 
@@ -501,7 +512,7 @@ describe("diffview.clubmate", function()
     assert.is_number(c.id)
   end)
 
-  nrev_it("marks a file changed after it was reviewed as stale", function()
+  nrev_it("marks a file changed outside nvim after it was reviewed as stale", function()
     clubmate.close(tab)
     require("nrev").setup({ bin = nrev_bin })
     capture(function(sent)
@@ -515,7 +526,6 @@ describe("diffview.clubmate", function()
         return nrev(repo, "reviewed", "list"):find("a.go", 1, true) ~= nil
       end)
       vim.fn.writefile({ "package a", "func A() int { return 2 }" }, repo .. "/a.go")
-      view():update_files()
       wait_for(function()
         local e = entry("a.go")
         return e.stale and not e.reviewed

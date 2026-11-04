@@ -102,7 +102,9 @@ Window.load_file = async.wrap(function(self, callback)
     err = "The file buffer is invalid!"
   end
 
-  if not ok then
+  if not ok and not self:is_valid() then
+    logger:warn(err)
+  elseif not ok then
     logger:error(err)
     utils.err(fmt("Failed to create diff buffer: '%s:%s'", self.file.rev, self.file.path), true)
   end

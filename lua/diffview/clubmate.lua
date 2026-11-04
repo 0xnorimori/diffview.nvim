@@ -14,7 +14,7 @@ local logger = DiffviewGlobal.logger
 
 local M = {}
 
-M.version = 3
+M.version = 4
 
 local reviews = {}
 local subscribers = {}
@@ -508,6 +508,8 @@ local function open(opts)
     ready = false,
     queue = {},
     release_open = release,
+    cwd = cwd,
+    excludes = vim.deepcopy(opts.excludes or {}),
     base = opts.base,
     head = opts.head,
     labels = labels,
@@ -706,6 +708,7 @@ local function set_excludes(globs, tab)
     return
   end
   snapshot_reviewed(view, state)
+  state.excludes = vim.deepcopy(globs or {})
   focus(t)
   local release = hold()
   view.emitter:once("files_updated", function()
@@ -832,6 +835,27 @@ local function close(tab)
   end
 end
 
+local function list_reviews()
+  local out = {}
+  for tab, state in pairs(reviews) do
+    if lib.tabpage_to_view(tab) then
+      table.insert(out, {
+        tab = tab,
+        cwd = state.cwd,
+        base = state.base,
+        head = state.head,
+        labels = vim.deepcopy(state.labels),
+        excludes = vim.deepcopy(state.excludes),
+        layout = state.layout or "split",
+      })
+    end
+  end
+  table.sort(out, function(a, b)
+    return a.tab < b.tab
+  end)
+  return out
+end
+
 local function subscribe(chan)
   subscribers[chan] = true
 end
@@ -873,6 +897,7 @@ M.set_filter = guard("set_filter", set_filter)
 M.set_panel = guard("set_panel", set_panel)
 M.set_layout = guard("set_layout", set_layout)
 M.close = guard("close", close)
+M.reviews = guard("reviews", list_reviews)
 M.subscribe = guard("subscribe", subscribe)
 
 return M

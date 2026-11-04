@@ -1,3 +1,4 @@
+local debounce = require("diffview.debounce")
 local marks = require("diffview.review.marks")
 
 local M = {}
@@ -23,6 +24,90 @@ local function view_is_open(view)
   return ok and vim.tbl_contains(lib.views, view)
 end
 
+local watchers = {}
+
+local function listen(path, recursive, fn)
+  local key = path .. (recursive and "\0r" or "")
+  local w = watchers[key]
+  if not w then
+    local handle = vim.uv.new_fs_event()
+    if not handle then
+      return function() end
+    end
+    w = { handle = handle, subs = {} }
+    local ok = pcall(handle.start, handle, path, { recursive = recursive }, function(err, name)
+      if not err then
+        vim.schedule(function()
+          for sub in pairs(w.subs) do
+            sub(name or "")
+          end
+        end)
+      end
+    end)
+    if not ok then
+      handle:close()
+      return function() end
+    end
+    watchers[key] = w
+  end
+  w.subs[fn] = true
+  return function()
+    w.subs[fn] = nil
+    if next(w.subs) == nil and watchers[key] == w then
+      watchers[key] = nil
+      w.handle:stop()
+      w.handle:close()
+    end
+  end
+end
+
+local function comments_changed()
+  vim.api.nvim_exec_autocmds("User", { pattern = "NrevCommentsChanged" })
+  local ok, lib = pcall(require, "diffview.lib")
+  if not ok then
+    return
+  end
+  local nrev = require("nrev")
+  local seen = {}
+  for _, view in ipairs(lib.views) do
+    local layout = view.cur_layout
+    for _, win in ipairs(layout and layout.windows or {}) do
+      local buf = win:is_valid() and vim.api.nvim_win_get_buf(win.id)
+      if buf and not seen[buf] then
+        seen[buf] = true
+        nrev.refresh(buf)
+      end
+    end
+  end
+end
+
+local db_changed = debounce.debounce_trailing(150, false, vim.schedule_wrap(comments_changed))
+
+local function rel_path(view, name)
+  local top = view.adapter.ctx.toplevel
+  if name:sub(1, #top + 1) == top .. "/" then
+    return name:sub(#top + 2)
+  end
+  return name
+end
+
+local function worktree_changed(view, name)
+  local path = rel_path(view, name)
+  if path == ".git" or path:match("^%.git/") then
+    return
+  end
+  for _, file in view.files:iter() do
+    if file.path == path then
+      local bn = vim.fn.bufnr(file.absolute_path)
+      if bn ~= -1 and vim.api.nvim_buf_is_loaded(bn) and not vim.bo[bn].modified then
+        pcall(vim.cmd, "checktime " .. bn)
+      end
+      view:update_files()
+      return
+    end
+  end
+end
+
 local function watch(view)
   if view._nrev_watched or not view.emitter then
     return
@@ -31,6 +116,27 @@ local function watch(view)
   view.emitter:on("files_updated", function()
     if view_is_open(view) then
       marks.refresh(view)
+    end
+  end)
+  local stops = {
+    listen(view.adapter.ctx.dir, false, function(name)
+      if vim.startswith(vim.fs.basename(name), "review.db") then
+        db_changed()
+      end
+    end),
+  }
+  if view.adapter:has_local(view.left, view.right) then
+    table.insert(stops, listen(view.adapter.ctx.toplevel, true, function(name)
+      if view_is_open(view) then
+        worktree_changed(view, name)
+      end
+    end))
+  end
+  view.emitter:on("view_closed", function(_, closed)
+    if closed == view then
+      for _, stop in ipairs(stops) do
+        stop()
+      end
     end
   end)
 end

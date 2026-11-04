@@ -210,6 +210,8 @@ function FilePanel:chrome_buf(name)
   return buf
 end
 
+local RULE = "%#DiffviewReviewBorder#%{repeat('─', winwidth(0))}"
+
 local chrome_winopts = {
   number = false,
   relativenumber = false,
@@ -261,6 +263,8 @@ function FilePanel:open_chrome()
     end
   else
     vim.wo[self.winid].winfixheight = false
+    local rule = vim.o.laststatus == 3 and "" or RULE
+    utils.set_local({ self.header_win, self.winid }, { statusline = rule })
   end
   api.nvim_create_autocmd("WinClosed", {
     group = chrome_group,

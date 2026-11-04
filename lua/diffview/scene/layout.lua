@@ -180,6 +180,8 @@ Layout.open_files = async.void(function(self)
 
   await(async.scheduler())
 
+  if not self:is_valid() then return end
+
   for _, win in ipairs(self.windows) do
     await(win:open_file())
   end

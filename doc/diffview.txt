@@ -1742,7 +1742,8 @@ ConflictCount                                   *diffview.ConflictCount*
 HOST API                                        *diffview-clubmate*
 
 `require("diffview.clubmate")` lets a host (Clubmate) drive review tabs over
-RPC. `version` is 3. Every function takes an optional {tab} (tabpage handle);
+RPC. `version` is 4 (4 added |diffview-clubmate.reviews()| and the watching
+below). Every function takes an optional {tab} (tabpage handle);
 without it the current review tab, else the last opened one, is used.
 Functions return `nil, err` instead of echoing errors.
 
@@ -1785,6 +1786,14 @@ close({tab})                                      *diffview-clubmate.close()*
         Open a file, change reviewed marks, jump to the next file not yet
         reviewed, change the excluded globs, show the file panel, close.
 
+reviews()                                       *diffview-clubmate.reviews()*
+        The open review tabs this module opened, by tab: `{ tab, cwd, base,
+        head, labels, excludes, layout }`, {cwd} the resolved real path. A
+        host that restarted adopts them instead of opening a second tab:
+        it calls |diffview-clubmate.subscribe()| with its new channel and
+        |diffview-clubmate.set_meta()| again, or closes the ones it no
+        longer wants.
+
 set_meta({tab}, {meta})                        *diffview-clubmate.set_meta()*
         What the panel prints: `{ subtitle, recipient, sent }`. {subtitle}
         follows "Review" in the header, {recipient} names who the comments go
@@ -1818,6 +1827,17 @@ subscribe({chan})                             *diffview-clubmate.subscribe()*
         panel: `gS` or a click on the button) and `closed` (only when the
         user closes the tab).
 
+Every diff view watches its git dir for `review.db` writes (nrev runs in WAL
+mode, so `review.db-wal` counts): an `nrev add`, `resolve` or `delete` run
+outside Neovim, by an agent say, recounts the panel, redraws the comment
+lines of the shown buffers and fires `User NrevCommentsChanged`, the public
+event for "nrev comments changed" (the `comments` event above follows it).
+A view with the working tree on one side also watches the worktree: a file of
+the view changed outside Neovim is reloaded (`:checktime`) and the view
+refreshes, so a reviewed file turns `●` at once. The worktree watch is
+recursive on macOS and Windows; on Linux libuv watches the top folder only
+and the view refreshes on focus, write and index changes as before.
+
 Review tabs opened by the host use a review profile: 'showtabline' is 0 while
 one is current, the diff windows show absolute numbers with only the cursor
 line number accented, and each winbar reads label, tag, path, where only the
@@ -1827,7 +1847,9 @@ path truncates. Tags: `checkpoint <sha>`, `merge-base <sha>`, `editable`,
 REVIEW PANEL                                    *diffview-review-panel*
 
 The file panel of a diff view is three stacked windows: a pinned header, the
-file tree (the only part that scrolls) and a pinned footer.
+file tree (the only part that scrolls) and a pinned footer. With
+'laststatus' 2 the header and the tree draw a rule as their statusline, so
+the column shows one statusline, the footer's.
 
 Header: `Review` and a subtitle (|diffview-clubmate.set_meta()|, else the
 repository and rev), a progress bar with `N / M reviewed`, `+A −D` and the

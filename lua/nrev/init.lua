@@ -1,7 +1,6 @@
 local M = {}
 
 local ns = vim.api.nvim_create_namespace("nrev")
-local types = { "issue", "suggestion", "question", "note", "praise" }
 local icons = { issue = "●", suggestion = "◆", question = "?", note = "·", praise = "+" }
 local hls = {
   issue = "DiagnosticError",
@@ -285,33 +284,28 @@ function M.add()
     end
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
   end
-  vim.ui.select(types, { prompt = "Comment type" }, function(typ)
-    if not typ then
+  vim.ui.input({ prompt = "Comment: " }, function(text)
+    if not text or text == "" then
       return
     end
-    vim.ui.input({ prompt = typ .. ": " }, function(text)
-      if not text or text == "" then
+    local line_text = vim.api.nvim_buf_get_lines(bufnr, s - 1, s, false)[1] or ""
+    M.run({
+      "add",
+      "--file", info.file,
+      "--line-start", tostring(s),
+      "--line-end", tostring(e),
+      "--side", info.side,
+      "--rev", info.rev,
+      "--line-text", line_text,
+      "--type", "note",
+      "--text", text,
+    }, info.cwd, function(out)
+      if out.code ~= 0 then
+        vim.notify("nrev add failed: " .. (out.stderr or ""), vim.log.levels.ERROR)
         return
       end
-      local line_text = vim.api.nvim_buf_get_lines(bufnr, s - 1, s, false)[1] or ""
-      M.run({
-        "add",
-        "--file", info.file,
-        "--line-start", tostring(s),
-        "--line-end", tostring(e),
-        "--side", info.side,
-        "--rev", info.rev,
-        "--line-text", line_text,
-        "--type", typ,
-        "--text", text,
-      }, info.cwd, function(out)
-        if out.code ~= 0 then
-          vim.notify("nrev add failed: " .. (out.stderr or ""), vim.log.levels.ERROR)
-          return
-        end
-        comments_changed()
-        M.refresh(bufnr)
-      end)
+      comments_changed()
+      M.refresh(bufnr)
     end)
   end)
 end

@@ -70,9 +70,6 @@ end
 assert(old_buf, "no diffview old-side buffer found")
 local win = vim.fn.win_findbuf(old_buf)[1]
 assert(win, "old-side buffer has no window")
-vim.ui.select = function(_, _, cb)
-  cb("note")
-end
 vim.ui.input = function(_, cb)
   cb("old side comment")
 end

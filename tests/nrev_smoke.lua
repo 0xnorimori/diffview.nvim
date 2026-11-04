@@ -10,9 +10,6 @@ vim.fn.writefile({ "package main", "func main() {}" }, f)
 local nrev = require("nrev")
 nrev.setup({ bin = root .. "/bin/nrev" })
 
-vim.ui.select = function(_, _, cb)
-  cb("issue")
-end
 vim.ui.input = function(_, cb)
   cb("smoke comment")
 end
@@ -35,7 +32,7 @@ assert(out.stdout and out.stdout:find("smoke comment", 1, true), "db row missing
 
 nrev.export()
 local exported = vim.wait(5000, function()
-  return vim.fn.getreg("+"):find("[ISSUE]", 1, true) ~= nil
+  return vim.fn.getreg("+"):find("[NOTE]", 1, true) ~= nil
 end, 50)
 assert(exported, "export register missing open comment: " .. vim.fn.getreg("+"))
 
@@ -54,18 +51,15 @@ local deleted = vim.wait(5000, function()
 end, 50)
 assert(deleted, "comment was not deleted")
 
-local mode_at_select
-vim.ui.select = function(_, _, cb)
-  mode_at_select = vim.fn.mode()
-  cb("suggestion")
-end
+local mode_at_input
 vim.ui.input = function(_, cb)
+  mode_at_input = vim.fn.mode()
   cb("visual range comment")
 end
 vim.api.nvim_win_set_cursor(0, { 1, 0 })
 vim.api.nvim_feedkeys("Vj", "x", false)
 nrev.add()
-assert(mode_at_select == "n", "expected normal mode at select time, got " .. tostring(mode_at_select))
+assert(mode_at_input == "n", "expected normal mode at input time, got " .. tostring(mode_at_input))
 local vis_ok = vim.wait(5000, function()
   local out2 = vim.system({ root .. "/bin/nrev", "list", "--json", "--status", "open" }, { cwd = tmp, text = true }):wait()
   local s2 = out2.stdout or ""

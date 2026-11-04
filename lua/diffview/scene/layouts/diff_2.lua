@@ -56,6 +56,9 @@ Diff2.use_entry = async.void(function(self, entry)
 end)
 
 function Diff2:get_main_win()
+  if self.b.file and self.b.file.nulled and self.a.file and not self.a.file.nulled then
+    return self.a
+  end
   return self.b
 end
 

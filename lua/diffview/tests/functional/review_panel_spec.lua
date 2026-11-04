@@ -86,6 +86,11 @@ describe("diffview file panel review", function()
     assert.truthy(footer():find(" ,rc  comment   ]a  next comment", 1, true))
     assert.truthy(footer():find("Send review ⌘↩", 1, true))
     assert.truthy(footer():find("○ to review  ✓ reviewed", 1, true))
+    for _, buf in ipairs(p:buffers()) do
+      vim.api.nvim_buf_call(buf, function()
+        eq(1, vim.fn.maparg("<LeftRelease>", "n", false, true).buffer)
+      end)
+    end
     vim.api.nvim_set_current_win(view().cur_layout.b.id)
     eq(false, vim.wo[p.winid].cursorline)
     vim.api.nvim_set_current_win(p.winid)

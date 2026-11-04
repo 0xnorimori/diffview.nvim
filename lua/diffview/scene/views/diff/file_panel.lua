@@ -470,6 +470,9 @@ function FilePanel:setup_buffer()
       self:close()
     end
   end, { silent = true, nowait = true, buffer = self.bufid })
+  vim.keymap.set("n", "<LeftRelease>", function()
+    self:click()
+  end, { silent = true, nowait = true, buffer = self.bufid })
 
   local default_opt = { silent = true, nowait = true, buffer = self.bufid }
   for _, mapping in ipairs(conf.keymaps.file_panel) do

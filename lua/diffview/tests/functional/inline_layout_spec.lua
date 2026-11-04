@@ -89,6 +89,31 @@ describe("diffview inline layout", function()
     end)
   end)
 
+  it("pads removed lines with tabs to the window's right edge", function()
+    clubmate.close(tab)
+    vim.fn.writefile({ "func T() {", "\tx := 1", "}" }, repo .. "/t.go")
+    git(repo, "add", "t.go")
+    git(repo, "commit", "-q", "-m", "tabs")
+    vim.fn.writefile({ "func T() {", "}" }, repo .. "/t.go")
+    tab = clubmate.open({ cwd = repo, base = "HEAD" })
+    wait_for(function()
+      local cur = view().cur_entry
+      return cur ~= nil and cur.opened
+    end)
+    select("t.go")
+    local win = inline()
+    local ts = vim.bo[vim.api.nvim_win_get_buf(win)].tabstop
+    local function removed()
+      return marks(win)[1][4].virt_lines[1][2][1]
+    end
+    local function fits()
+      return vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff == vim.fn.strdisplaywidth(removed())
+    end
+    vim.api.nvim_exec_autocmds("WinResized", {})
+    wait_for(fits)
+    eq(string.rep(" ", ts) .. "x := 1", (removed():gsub("%s+$", "")))
+  end)
+
   helpers.nrev_it("shows old-side comments under their old line", function()
     local nrev = require("nrev")
     local layout = view().cur_layout

@@ -101,11 +101,29 @@ local function join(lines)
   return #lines == 0 and "" or table.concat(lines, "\n") .. "\n"
 end
 
-local function removed_lines(old, start, count, gutter, width, notes)
+local function expand_tabs(text, tabstop)
+  if not text:find("\t", 1, true) then
+    return text
+  end
+  local out, col = {}, 0
+  local parts = vim.split(text, "\t", { plain = true })
+  for i, part in ipairs(parts) do
+    table.insert(out, part)
+    col = col + vim.fn.strdisplaywidth(part)
+    if i < #parts then
+      local n = tabstop - col % tabstop
+      table.insert(out, string.rep(" ", n))
+      col = col + n
+    end
+  end
+  return table.concat(out)
+end
+
+local function removed_lines(old, start, count, gutter, width, tabstop, notes)
   local out = {}
   for i = start, start + count - 1 do
     local sign = ("−%" .. math.max(gutter - 2, 1) .. "d "):format(i)
-    local text = old[i] or ""
+    local text = expand_tabs(old[i] or "", tabstop)
     local pad = math.max(width - vim.fn.strdisplaywidth(text), 0)
     table.insert(out, {
       { sign, "DiffviewInlineGutter" },
@@ -168,7 +186,7 @@ Diff1Inline.render = async.void(function(self)
     if ca > 0 then
       local above = cb > 0 or (sb == 0 and not nulled)
       local row = math.max(sb - 1, 0)
-      local virt = removed_lines(old, sa, ca, gutter, width, notes)
+      local virt = removed_lines(old, sa, ca, gutter, width, vim.bo[buf].tabstop, notes)
       if above and row == 0 then
         topfill = #virt
       end
@@ -201,6 +219,7 @@ Diff1Inline.render = async.void(function(self)
     end)
   end
   self.topline = cur.topline
+  self.width = api.nvim_win_get_width(win.id)
   self:watch(buf, win.id)
 end)
 
@@ -232,6 +251,14 @@ function Diff1Inline:watch(buf, winid)
     group = self.group,
     callback = function()
       self:load_comments()
+    end,
+  })
+  api.nvim_create_autocmd("WinResized", {
+    group = self.group,
+    callback = function()
+      if api.nvim_win_is_valid(winid) and api.nvim_win_get_width(winid) ~= self.width then
+        self.rerender()
+      end
     end,
   })
   api.nvim_create_autocmd("WinScrolled", {

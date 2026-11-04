@@ -1884,6 +1884,10 @@ The file panel of a diff view is three stacked windows: a pinned header, the
 file tree (the only part that scrolls) and a pinned footer. With
 'laststatus' 2 the header and the tree draw a rule as their statusline, so
 the column shows one statusline, the footer's.
+The header and the footer never keep focus: entered from the keyboard
+(`<C-w>h` from the diff at any row) they hand it to the tree, and `<C-w>w` or
+`<C-w>W` from the tree goes on past them. A click on a checkbox or a footer
+action acts and returns to the window the click came from.
 
 Header: `Review` and a subtitle (|diffview-clubmate.set_meta()|, else the
 repository and rev), the `base` and `changes` lines the host sets (each

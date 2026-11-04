@@ -1,5 +1,6 @@
 local debounce = require("diffview.debounce")
 local marks = require("diffview.review.marks")
+local utils = require("diffview.utils")
 
 local M = {}
 
@@ -35,7 +36,7 @@ local function listen(path, recursive, fn)
       return function() end
     end
     w = { handle = handle, subs = {} }
-    local ok = pcall(handle.start, handle, path, { recursive = recursive }, function(err, name)
+    local ok, res = pcall(handle.start, handle, path, { recursive = recursive }, function(err, name)
       if not err then
         vim.schedule(function()
           for sub in pairs(w.subs) do
@@ -44,7 +45,7 @@ local function listen(path, recursive, fn)
         end)
       end
     end)
-    if not ok then
+    if not ok or res ~= 0 then
       handle:close()
       return function() end
     end
@@ -98,8 +99,8 @@ local function worktree_changed(view, name)
   end
   for _, file in view.files:iter() do
     if file.path == path then
-      local bn = vim.fn.bufnr(file.absolute_path)
-      if bn ~= -1 and vim.api.nvim_buf_is_loaded(bn) and not vim.bo[bn].modified then
+      local bn = utils.find_file_buffer(file.absolute_path)
+      if bn and vim.api.nvim_buf_is_loaded(bn) and not vim.bo[bn].modified then
         pcall(vim.cmd, "checktime " .. bn)
       end
       view:update_files()

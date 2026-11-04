@@ -111,6 +111,7 @@ describe("diffview file panel review", function()
     eq(string.rep("─", width), status(p.header_win))
     eq(string.rep("─", width), status(p.winid))
     eq(vim.go.statusline, vim.wo[p.footer_win].statusline)
+    assert.falsy(vim.go.statusline:find("─", 1, true))
   end)
 
   it("draws a row per file with its state, kind chip and right-aligned counts", function()

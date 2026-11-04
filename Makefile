@@ -11,9 +11,12 @@ export TEST_PATH
 # 	Run tests for a specific path:
 # 	$ TEST_PATH=tests/some/path make test
 .PHONY: test
-test:
+test: bin/nrev
 	nvim --headless -i NONE -n -u scripts/test_init.lua -c \
 		"PlenaryBustedDirectory $(TEST_PATH) { minimal_init = './scripts/test_init.lua', timeout = 180000, sequential = true }"
+
+bin/nrev: $(shell find nrev -name '*.go') nrev/go.mod nrev/go.sum
+	cd nrev && go build -o ../bin/nrev .
 
 .PHONY: dev
 dev: .dev/lua/nvim

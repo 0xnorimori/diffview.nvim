@@ -1823,6 +1823,16 @@ set_layout({layout}, {tab})                  *diffview-clubmate.set_layout()*
         floating over the left edge; `<Esc>` in it closes it. Back to
         `"split"` the panel returns if it was shown before.
 
+        The inline pane follows edits: a moment after the buffer changes the
+        added and removed lines are drawn again. The removed lines above
+        line 1 come back whenever the view returns to line 1 from below
+        (`gg`, scrolling up); `<C-e>` still scrolls them away. Review
+        comments on the old side render right under their removed line, or
+        under the matching line when the old line is unchanged, and follow
+        |User| `NrevCommentsChanged` and |FocusGained|. They can only be
+        added, resolved or deleted from `"split"`: the cursor cannot rest
+        on the removed lines.
+
 subscribe({chan})                             *diffview-clubmate.subscribe()*
         Sends `rpcnotify(chan, "clubmate", { event = "review", kind, path,
         tab })` with {kind} one of `files_updated`, `file_open`, `reviewed`,

@@ -100,7 +100,7 @@ local function toplevel_for(gitdir)
   return top or false
 end
 
-local function buf_info(bufnr)
+function M.buf_info(bufnr)
   local name = vim.api.nvim_buf_get_name(bufnr)
   if name == "" then
     return nil
@@ -127,6 +127,8 @@ local function buf_info(bufnr)
   end
   return { file = name, cwd = vim.fs.dirname(name), side = "new", rev = "WORKING" }
 end
+
+local buf_info = M.buf_info
 
 local function comments_changed()
   vim.api.nvim_exec_autocmds("User", { pattern = "NrevCommentsChanged" })
@@ -175,7 +177,7 @@ local function wrap(text, width)
   return out
 end
 
-local function comment_lines(c, drifted, width)
+function M.comment_lines(c, drifted, width)
   local tone = tones[c.type] or "Comment"
   local rule = { RULE, tone }
   if c.status == "resolved" then
@@ -211,7 +213,7 @@ local function render(bufnr, comments)
     local row = math.min(c.line_start, count) - 1
     local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ""
     local drifted = c.status == "open" and line ~= c.line_text
-    local virt = comment_lines(c, drifted, width)
+    local virt = M.comment_lines(c, drifted, width)
     local mark = vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, {
       sign_text = c.status == "resolved" and "✓" or "✎",
       sign_hl_group = c.status == "resolved" and "Comment" or (tones[c.type] or hls[c.type] or "DiagnosticInfo"),
@@ -236,18 +238,13 @@ function M.rerender(bufnr)
   end
 end
 
-function M.refresh(bufnr)
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
-  local info = buf_info(bufnr)
-  if not info then
-    return
-  end
+function M.list(info, cb)
   M.run({ "list", "--json", "--status", "all", "--file", info.file }, info.cwd, function(out)
     if out.code ~= 0 or not out.stdout or out.stdout == "" then
       return
     end
     local ok, comments = pcall(vim.json.decode, out.stdout)
-    if not ok or not vim.api.nvim_buf_is_valid(bufnr) then
+    if not ok then
       return
     end
     local visible = {}
@@ -256,7 +253,20 @@ function M.refresh(bufnr)
         table.insert(visible, c)
       end
     end
-    render(bufnr, visible)
+    cb(visible)
+  end)
+end
+
+function M.refresh(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local info = buf_info(bufnr)
+  if not info then
+    return
+  end
+  M.list(info, function(visible)
+    if vim.api.nvim_buf_is_valid(bufnr) then
+      render(bufnr, visible)
+    end
   end)
 end
 
@@ -452,6 +462,7 @@ end
 
 function M.setup(opts)
   config = vim.tbl_extend("force", config, opts or {})
+  M.enabled = true
   local group = vim.api.nvim_create_augroup("nrev", { clear = true })
   vim.api.nvim_create_autocmd("BufReadPost", {
     group = group,

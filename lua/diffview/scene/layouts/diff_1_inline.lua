@@ -4,7 +4,10 @@ local Diff1 = require("diffview.scene.layouts.diff_1").Diff1
 local oop = require("diffview.oop")
 
 local Diff2 = lazy.access("diffview.scene.layouts.diff_2", "Diff2") ---@type Diff2|LazyModule
+local debounce = lazy.require("diffview.debounce") ---@module "diffview.debounce"
 local fill = lazy.require("diffview.review.fill") ---@module "diffview.review.fill"
+local nrev = lazy.require("nrev") ---@module "nrev"
+local nrev_diffview = lazy.require("nrev.diffview") ---@module "nrev.diffview"
 
 local api = vim.api
 local await = async.await
@@ -59,8 +62,27 @@ end)
 ---@param self Diff1Inline
 Diff1Inline.open_files = async.void(function(self)
   await(Diff1.open_files(self))
+  self.old_comments = {}
   await(self:render())
+  self:load_comments()
 end)
+
+function Diff1Inline:load_comments()
+  local file = self.a.file
+  if not (nrev.enabled and file and file:is_valid()) then
+    return
+  end
+  local info = nrev.buf_info(file.bufnr)
+  if not info or info.side ~= "old" then
+    return
+  end
+  nrev.list(info, function(comments)
+    if self.rendered_buf and self.a.file == file and (#comments > 0 or #(self.old_comments or {}) > 0) then
+      self.old_comments = comments
+      self:render()
+    end
+  end)
+end
 
 local function lines_of(file)
   if not file or file.nulled then
@@ -79,7 +101,7 @@ local function join(lines)
   return #lines == 0 and "" or table.concat(lines, "\n") .. "\n"
 end
 
-local function removed_lines(old, start, count, gutter, width)
+local function removed_lines(old, start, count, gutter, width, notes)
   local out = {}
   for i = start, start + count - 1 do
     local sign = ("−%" .. math.max(gutter - 2, 1) .. "d "):format(i)
@@ -89,8 +111,25 @@ local function removed_lines(old, start, count, gutter, width)
       { sign, "DiffviewInlineGutter" },
       { text .. string.rep(" ", pad), "DiffDelete" },
     })
+    for _, line in ipairs(notes[i] or {}) do
+      table.insert(out, { { string.rep(" ", gutter), "Normal" }, unpack(line) })
+    end
+    notes[i] = nil
   end
   return out
+end
+
+local function comment_notes(comments, old, width)
+  local notes = {}
+  for _, c in ipairs(comments or {}) do
+    local row = math.min(c.line_start, #old)
+    if row >= 1 then
+      notes[row] = notes[row] or {}
+      local drifted = c.status == "open" and old[row] ~= c.line_text
+      vim.list_extend(notes[row], nrev.comment_lines(c, drifted, width))
+    end
+  end
+  return notes
 end
 
 ---@param self Diff1Inline
@@ -113,12 +152,15 @@ Diff1Inline.render = async.void(function(self)
   vim.wo[win.id].cursorbind = false
   vim.wo[win.id].foldenable = false
 
+  local shown = self.rendered_buf == buf and self.topfill
+  local cur = api.nvim_win_call(win.id, vim.fn.winsaveview)
   self:clear()
   self.rendered_buf = buf
   local info = vim.fn.getwininfo(win.id)[1]
   local gutter = info and info.textoff or 0
   local width = api.nvim_win_get_width(win.id) - gutter
   local hunks = vim.diff(join(old), join(new), { result_type = "indices" }) or {}
+  local notes = comment_notes(self.old_comments, old, width)
 
   local topfill = 0
   for _, h in ipairs(hunks) do
@@ -126,11 +168,12 @@ Diff1Inline.render = async.void(function(self)
     if ca > 0 then
       local above = cb > 0 or (sb == 0 and not nulled)
       local row = math.max(sb - 1, 0)
+      local virt = removed_lines(old, sa, ca, gutter, width, notes)
       if above and row == 0 then
-        topfill = ca
+        topfill = #virt
       end
       api.nvim_buf_set_extmark(buf, ns, row, 0, {
-        virt_lines = removed_lines(old, sa, ca, gutter, width),
+        virt_lines = virt,
         virt_lines_above = above,
         virt_lines_leftcol = true,
       })
@@ -144,14 +187,75 @@ Diff1Inline.render = async.void(function(self)
     end
   end
 
-  if topfill > 0 then
+  for row, virt in pairs(notes) do
+    if #new > 0 then
+      local at = math.min(math.max(nrev_diffview.map_line(hunks, row), 1), #new)
+      api.nvim_buf_set_extmark(buf, ns, at - 1, 0, { virt_lines = virt })
+    end
+  end
+
+  self.topfill = topfill
+  if topfill > 0 and cur.topline == 1 and (not shown or cur.topfill >= shown) then
     api.nvim_win_call(win.id, function()
-      if vim.fn.line("w0") == 1 then
-        vim.fn.winrestview({ topfill = topfill })
-      end
+      vim.fn.winrestview({ topfill = topfill })
     end)
   end
+  self.topline = cur.topline
+  self:watch(buf, win.id)
 end)
+
+function Diff1Inline:watch(buf, winid)
+  local token = {}
+  self.listener = token
+  self.rerender = debounce.debounce_trailing(150, false, vim.schedule_wrap(function()
+    if self.listener == token then
+      self:render()
+    end
+  end))
+  api.nvim_buf_attach(buf, false, {
+    on_lines = function()
+      if self.listener ~= token then
+        return true
+      end
+      self.rerender()
+    end,
+  })
+  self.group = api.nvim_create_augroup("diffview_inline_" .. winid, { clear = true })
+  api.nvim_create_autocmd({ "User" }, {
+    group = self.group,
+    pattern = "NrevCommentsChanged",
+    callback = function()
+      self:load_comments()
+    end,
+  })
+  api.nvim_create_autocmd("FocusGained", {
+    group = self.group,
+    callback = function()
+      self:load_comments()
+    end,
+  })
+  api.nvim_create_autocmd("WinScrolled", {
+    group = self.group,
+    pattern = tostring(winid),
+    callback = function()
+      self:restore_topfill(winid)
+    end,
+  })
+end
+
+function Diff1Inline:restore_topfill(winid)
+  if not api.nvim_win_is_valid(winid) then
+    return
+  end
+  api.nvim_win_call(winid, function()
+    local view = vim.fn.winsaveview()
+    local from = self.topline
+    self.topline = view.topline
+    if from and from > 1 and view.topline == 1 and view.topfill < (self.topfill or 0) then
+      vim.fn.winrestview({ topfill = self.topfill })
+    end
+  end)
+end
 
 function Diff1Inline:view()
   for _, view in ipairs(require("diffview.lib").views) do
@@ -164,6 +268,15 @@ end
 function Diff1Inline:clear()
   local buf = self.rendered_buf
   self.rendered_buf = nil
+  self.listener = nil
+  if self.rerender then
+    self.rerender.close()
+    self.rerender = nil
+  end
+  if self.group then
+    pcall(api.nvim_del_augroup_by_id, self.group)
+    self.group = nil
+  end
   if buf and api.nvim_buf_is_valid(buf) then
     api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   end

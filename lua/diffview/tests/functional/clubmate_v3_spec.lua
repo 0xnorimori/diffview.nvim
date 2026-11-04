@@ -67,7 +67,7 @@ describe("diffview.clubmate v3", function()
 
   it("lists the open host reviews so a restarted host can adopt them", function()
     clubmate.set_layout("inline", tab)
-    local other = clubmate.open({ cwd = repo, base = "HEAD", excludes = { "*_test.go" }, labels = { left = "L" } })
+    local other = clubmate.open({ cwd = repo, base = "HEAD", excludes = { "*_test.go" }, labels = { left = "L" }, host = { id = "rv_1" } })
     eq({
       {
         tab = tab, cwd = vim.uv.fs_realpath(repo), base = "HEAD", excludes = {}, layout = "inline",
@@ -75,7 +75,7 @@ describe("diffview.clubmate v3", function()
       },
       {
         tab = other, cwd = vim.uv.fs_realpath(repo), base = "HEAD", excludes = { "*_test.go" }, layout = "split",
-        labels = { left = "L", right = "Working tree" },
+        labels = { left = "L", right = "Working tree" }, host = { id = "rv_1" },
       },
     }, clubmate.reviews())
     clubmate.close(other)

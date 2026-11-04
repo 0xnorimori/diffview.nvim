@@ -1759,6 +1759,8 @@ open({opts})                                    *diffview-clubmate.open()*
                                  sides read-only.
             {labels} (table?)    `{ left, right }` overriding the side labels.
             {excludes} (string[]?) Globs left out of the view.
+            {host} (table?)      Opaque data |diffview-clubmate.reviews()|
+                                 hands back, e.g. the host's review id.
 
 info({tab})                                     *diffview-clubmate.info()*
         Returns `{ base, head, merge_base, editable, labels = { left, right } }`.
@@ -1788,7 +1790,8 @@ close({tab})                                      *diffview-clubmate.close()*
 
 reviews()                                       *diffview-clubmate.reviews()*
         The open review tabs this module opened, by tab: `{ tab, cwd, base,
-        head, labels, excludes, layout }`, {cwd} the resolved real path. A
+        head, labels, excludes, layout, host }`, {cwd} the resolved real
+        path, {host} what |diffview-clubmate.open()| got. A
         host that restarted adopts them instead of opening a second tab:
         it calls |diffview-clubmate.subscribe()| with its new channel and
         |diffview-clubmate.set_meta()| again, or closes the ones it no

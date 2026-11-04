@@ -509,6 +509,7 @@ local function open(opts)
     queue = {},
     release_open = release,
     cwd = cwd,
+    host = vim.deepcopy(opts.host),
     excludes = vim.deepcopy(opts.excludes or {}),
     base = opts.base,
     head = opts.head,
@@ -847,6 +848,7 @@ local function list_reviews()
         labels = vim.deepcopy(state.labels),
         excludes = vim.deepcopy(state.excludes),
         layout = state.layout or "split",
+        host = vim.deepcopy(state.host),
       })
     end
   end

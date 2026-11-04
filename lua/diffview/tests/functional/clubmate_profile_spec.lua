@@ -119,6 +119,10 @@ describe("diffview.clubmate review profile", function()
   end
 
   local function message(win)
+    local float = require("diffview.review.fill").float(win)
+    if float then
+      return vim.trim(vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(float), 0, 1, false)[1])
+    end
     for _, m in ipairs(vim.api.nvim_buf_get_extmarks(vim.api.nvim_win_get_buf(win), -1, 0, -1, { details = true })) do
       if m[4].virt_text then
         return vim.trim(m[4].virt_text[1][1])
@@ -142,6 +146,35 @@ describe("diffview.clubmate review profile", function()
     eq({ "DiffAdd", "DiffAdd", "DiffAdd" }, diff_hl(right))
     eq("Before turn 3 did not exist %<new.txt", vim.trim(bar_text(left)))
     eq("Working tree new file · 3 lines %<new.txt", vim.trim(bar_text(right)))
+  end)
+
+  it("centres the new file message in the hatching and drops it for a modified file", function()
+    select("new.txt")
+    local left = view().cur_layout.a.id
+    local fill = require("diffview.review.fill")
+    local float = fill.float(left)
+    local width = vim.fn.strdisplaywidth(" New file — nothing before HEAD ")
+    vim.api.nvim_win_set_width(left, 60)
+    wait_for(function()
+      return vim.api.nvim_win_get_config(float).width == width
+    end)
+    local info = vim.fn.getwininfo(left)[1]
+    local conf = vim.api.nvim_win_get_config(float)
+    eq({ "win", left, 1 + 1, info.textoff + math.floor((60 - info.textoff - width) / 2), false },
+      { conf.relative, conf.win, conf.row, conf.col, conf.focusable })
+    eq(0, #vim.api.nvim_buf_get_extmarks(vim.api.nvim_win_get_buf(left), -1, 0, -1, {}))
+
+    select("a.go")
+    eq(nil, fill.float(left))
+    eq(false, vim.api.nvim_win_is_valid(float))
+
+    select("new.txt")
+    float = fill.float(view().cur_layout.a.id)
+    clubmate.close(tab)
+    wait_for(function()
+      return not vim.api.nvim_win_is_valid(float)
+    end)
+    open_review()
   end)
 
   it("deleted file mirrors it", function()

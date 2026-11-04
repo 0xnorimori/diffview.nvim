@@ -1911,6 +1911,11 @@ Highlight groups, each defined with `default`:
 
 In every diff view a new file keeps two panes: the left one is ╱ filler that
 reads "New file — nothing before <left label>" and every line on the right is
-added. A deleted file mirrors it with "Deleted in <right label>".
+added. A deleted file mirrors it with "Deleted in <right label>". The message
+floats over the hatching in `DiffviewFillMessage`, centred across the pane and
+in the hatched rows that are visible; it follows resizes and goes away when the
+pane shows a file again or the view closes. The inline layout has no hatching,
+so a deleted file there keeps the message on its first line, below the removed
+lines.
 
  vim:tw=78:ts=8:ft=help:norl:

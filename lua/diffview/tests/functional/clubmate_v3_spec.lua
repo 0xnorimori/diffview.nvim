@@ -169,6 +169,8 @@ describe("diffview.clubmate v3", function()
     eq({ 1, 0 }, { conf.row, conf.col })
     eq(vim.api.nvim_win_get_config(p.winid).row, conf.row + conf.height)
     eq(p.winid, vim.api.nvim_get_current_win())
+    local line = vim.api.nvim_buf_get_lines(p.bufid, vim.api.nvim_win_get_cursor(p.winid)[1] - 1, -1, false)[1]
+    assert.truthy(line:find("a.go", 1, true))
     require("diffview.actions").toggle_files()
     assert.is_falsy(p:is_open())
     eq(false, vim.api.nvim_win_is_valid(p.header_win or -1))

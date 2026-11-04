@@ -1824,6 +1824,56 @@ line number accented, and each winbar reads label, tag, path, where only the
 path truncates. Tags: `checkpoint <sha>`, `merge-base <sha>`, `editable`,
 `read-only`, `new file · N lines`, `did not exist` and `deleted`.
 
+REVIEW PANEL                                    *diffview-review-panel*
+
+The file panel of a diff view is three stacked windows: a pinned header, the
+file tree (the only part that scrolls) and a pinned footer.
+
+Header: `Review` and a subtitle (|diffview-clubmate.set_meta()|, else the
+repository and rev), a progress bar with `N / M reviewed`, `+A −D` and the
+open comment count, and the filters `Show ☑ code ☐ tests N ☐ generated N`
+and `☑ reviewed`. Once every shown file is reviewed a done box reads
+`✓ All M files reviewed · K comments for <recipient>`, after a send
+`✓ M/M · N comments sent`.
+
+Tree: one folder row per parent directory with its reviewed/total and an
+amber open comment count; file rows read state (`○` to review, `✓` reviewed,
+`●` changed since it was reviewed), name, a `new`, `deleted` or `renamed`
+chip, the open comment count and `+N −M`. The open file has a bar and a
+highlighted row. Before anything is reviewed or commented a tip explains `r`
+and `]f`. Hidden reviewed files leave their folders and a
+`N reviewed files hidden · show` line.
+
+Footer: `Comments · K open` (open ones first, then resolved ones faint, at
+most three; `<CR>` or a click jumps to one), the keys, `Send K comments ⌘↩`
+when a host is attached (primary once every file is reviewed; `gS`),
+`Copy ,re` and a legend.
+
+Checkboxes, Send, Copy, comments, folders and file rows answer a mouse click;
+in the header and footer windows `<CR>` does the same. `zc`, `zt`, `zg` and
+`zr` toggle the filters, `]f` / `[f` open the next or previous file to
+review.
+
+Highlight groups, each defined with `default`:
+    Links: `DiffviewReviewText` (Normal), `DiffviewReviewMuted`
+    (DiffviewFilePanelKeyHint), `DiffviewReviewFaint` (LineNr),
+    `DiffviewReviewAccent` (DiffviewFilePanelTitle), `DiffviewReviewSuccess`
+    (DiffviewFilePanelInsertions), `DiffviewReviewDanger`
+    (DiffviewFilePanelDeletions), `DiffviewReviewWarning`
+    (DiffviewFilePanelStale), `DiffviewReviewCount`
+    (DiagnosticVirtualTextWarn), `DiffviewReviewBar`, `DiffviewReviewBarDone`,
+    `DiffviewReviewBarTodo`, `DiffviewReviewCheckOn`, `DiffviewReviewCheckOff`,
+    `DiffviewReviewFolder`, `DiffviewReviewActiveBar`, `DiffviewReviewResolved`
+    (to the groups above), `DiffviewReviewBorder` (WinSeparator).
+    Computed from the colour scheme: `DiffviewReviewTitle` and
+    `DiffviewReviewCounter` (bold Normal), `DiffviewReviewChip`,
+    `DiffviewReviewKey` and `DiffviewReviewButton` (on a surface of 10 % fg
+    over bg), `DiffviewReviewButtonPrimary` (bg on the accent),
+    `DiffviewReviewChipNew` and `DiffviewReviewDone` (success on the DiffAdd
+    background), `DiffviewReviewChipDeleted` (danger on the DiffDelete
+    background), `DiffviewReviewLink` (underlined) and
+    `DiffviewReviewActive` (the Visual background).
+
 In every diff view a new file keeps two panes: the left one is ╱ filler that
 reads "New file — nothing before <left label>" and every line on the right is
 added. A deleted file mirrors it with "Deleted in <right label>".

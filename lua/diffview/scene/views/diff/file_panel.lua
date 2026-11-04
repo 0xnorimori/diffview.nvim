@@ -139,6 +139,7 @@ function FilePanel:open()
   FilePanel.super_class.open(self)
   self:open_chrome()
   vim.cmd("wincmd =")
+  self:highlight_cur_file()
 end
 
 ---@override

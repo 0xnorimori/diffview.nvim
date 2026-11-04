@@ -1887,7 +1887,7 @@ the column shows one statusline, the footer's.
 
 Header: `Review` and a subtitle (|diffview-clubmate.set_meta()|, else the
 repository and rev), the `base` and `changes` lines the host sets (each
-wraps under its value), a progress bar with `N / M reviewed`, `+A −D` and the
+wraps at its ` · ` parts under its value), a progress bar with `N / M reviewed`, `+A −D` and the
 open comment count, and the filters `Show ☑ code ☐ tests N ☐ generated N`
 and `☑ reviewed`. Once every shown file is reviewed a done box reads
 `✓ All M files reviewed · K comments for <recipient>`, after a send

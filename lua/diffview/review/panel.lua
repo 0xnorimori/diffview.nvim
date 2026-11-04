@@ -111,6 +111,25 @@ function M.wrap(text, width)
   return lines
 end
 
+---@param text string
+---@param width integer
+---@return string[]
+function M.wrap_parts(text, width)
+  local rows, cur = {}, nil
+  for part in (text .. " · "):gmatch("(.-) · ") do
+    if not cur then
+      cur = part
+    elseif api.nvim_strwidth(cur .. " · " .. part) <= width then
+      cur = cur .. " · " .. part
+    else
+      rows[#rows + 1] = cur
+      cur = "· " .. part
+    end
+  end
+  rows[#rows + 1] = cur
+  return rows
+end
+
 local MAX_COUNT_BYTES = 1048576
 
 ---@param path string
@@ -242,7 +261,7 @@ function M.header(panel, width)
   lines[#lines + 1] = title
   for _, side in ipairs({ { "base", meta.base }, { "changes", meta.changes } }) do
     if side[2] and side[2] ~= "" then
-      for i, row in ipairs(M.wrap(side[2], inner - 8)) do
+      for i, row in ipairs(M.wrap_parts(side[2], inner - 8)) do
         lines[#lines + 1] = M.line()
           :add(" ")
           :add(i == 1 and ("%-8s"):format(side[1]) or string.rep(" ", 8), "DiffviewReviewMuted")

@@ -92,11 +92,11 @@ describe("diffview.clubmate v3", function()
   end)
 
   it("prints the base and the changes the host sets on lines of their own", function()
-    clubmate.set_meta(tab, { base = "Before turn 1 · 97a29b4", changes = "DUE-970-cards-with-long-name · working tree" })
+    clubmate.set_meta(tab, { base = "Before turn 1 · 97a29b4", changes = "fix/review-base-changes · working tree" })
     local text = panel_text()
     assert.truthy(text:find("\n Review\n", 1, true) or text:find("^ Review\n"))
     assert.truthy(text:find(" base    Before turn 1 · 97a29b4\n", 1, true))
-    assert.truthy(text:find(" changes DUE-970-cards-with-long-name\n         · working tree\n", 1, true))
+    assert.truthy(text:find(" changes fix/review-base-changes\n         · working tree\n", 1, true))
   end)
 
   it("sends a send event when gS is pressed in the panel", function()

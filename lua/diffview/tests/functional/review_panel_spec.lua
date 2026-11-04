@@ -143,6 +143,22 @@ describe("diffview file panel review", function()
     })
   end)
 
+  it("passes focus on from the header and the footer", function()
+    open()
+    local p = panel()
+    local chrome = { p.header_win, p.footer_win }
+    vim.api.nvim_set_current_win(view().cur_layout.b.id)
+    vim.api.nvim_set_current_win(p.header_win)
+    wait_for(function()
+      return vim.api.nvim_get_current_win() == p.winid
+    end)
+    vim.api.nvim_set_current_win(p.footer_win)
+    wait_for(function()
+      local cur = vim.api.nvim_get_current_win()
+      return cur ~= p.winid and not vim.tbl_contains(chrome, cur)
+    end)
+  end)
+
   it("toggles a filter from its checkbox", function()
     open()
     eq(true, click(panel().header_win, panel().header_buf, "☐ tests 2"))

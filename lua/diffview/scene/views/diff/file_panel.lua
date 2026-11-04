@@ -86,8 +86,14 @@ function FilePanel:init(adapter, files, path_args, rev_pretty_name)
   self.focus_au = api.nvim_create_autocmd({ "WinEnter", "WinLeave" }, {
     group = chrome_group,
     callback = function(ev)
-      if self:is_open() and api.nvim_get_current_win() == self.winid then
+      if not self:is_open() then
+        return
+      end
+      local cur = api.nvim_get_current_win()
+      if cur == self.winid then
         vim.wo[self.winid].cursorline = ev.event == "WinEnter"
+      elseif ev.event == "WinEnter" and (cur == self.header_win or cur == self.footer_win) then
+        self:pass_focus(cur, vim.fn.win_getid(vim.fn.winnr("#")))
       end
     end,
   })
@@ -281,6 +287,22 @@ function FilePanel:open_chrome()
   self:redraw_chrome()
 end
 
+---@param win integer
+---@param from integer
+function FilePanel:pass_focus(win, from)
+  self.chrome_from = from
+  vim.schedule(function()
+    if not (self:is_open() and api.nvim_get_current_win() == win) then
+      return
+    end
+    if from ~= self.winid then
+      api.nvim_set_current_win(self.winid)
+    else
+      vim.cmd(win == self.header_win and "wincmd W" or "wincmd w")
+    end
+  end)
+end
+
 function FilePanel:close_chrome()
   local wins = { self.header_win, self.footer_win }
   local cur = api.nvim_get_current_win()
@@ -414,7 +436,11 @@ function FilePanel:click()
     end
   end
   if pos.winid == self.header_win or pos.winid == self.footer_win then
-    vim.cmd("wincmd p")
+    if valid_win(self.chrome_from) and self.chrome_from ~= pos.winid then
+      api.nvim_set_current_win(self.chrome_from)
+    else
+      vim.cmd("wincmd p")
+    end
   end
   self:activate(pos.winid, pos.line, col)
 end

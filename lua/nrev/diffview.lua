@@ -33,7 +33,7 @@ local function listen(path, recursive, fn)
   if not w then
     local handle = vim.uv.new_fs_event()
     if not handle then
-      return function() end
+      return nil
     end
     w = { handle = handle, subs = {} }
     local ok, res = pcall(handle.start, handle, path, { recursive = recursive }, function(err, name)
@@ -47,7 +47,7 @@ local function listen(path, recursive, fn)
     end)
     if not ok or res ~= 0 then
       handle:close()
-      return function() end
+      return nil
     end
     watchers[key] = w
   end
@@ -71,6 +71,9 @@ local function comments_changed()
   local nrev = require("nrev")
   local seen = {}
   for _, view in ipairs(lib.views) do
+    if view.files and view.adapter and view._nrev_db_watched then
+      marks.refresh(view)
+    end
     local layout = view.cur_layout
     for _, win in ipairs(layout and layout.windows or {}) do
       local buf = win:is_valid() and vim.api.nvim_win_get_buf(win.id)
@@ -119,13 +122,13 @@ local function watch(view)
       marks.refresh(view)
     end
   end)
-  local stops = {
-    listen(view.adapter.ctx.dir, false, function(name)
-      if vim.startswith(vim.fs.basename(name), "review.db") then
-        db_changed()
-      end
-    end),
-  }
+  local stop_db = listen(view.adapter.ctx.dir, false, function(name)
+    if vim.startswith(vim.fs.basename(name), "review.db") then
+      db_changed()
+    end
+  end)
+  view._nrev_db_watched = stop_db ~= nil
+  local stops = { stop_db }
   if view.adapter:has_local(view.left, view.right) then
     table.insert(stops, listen(view.adapter.ctx.toplevel, true, function(name)
       if view_is_open(view) then
@@ -135,7 +138,7 @@ local function watch(view)
   end
   view.emitter:on("view_closed", function(_, closed)
     if closed == view then
-      for _, stop in ipairs(stops) do
+      for _, stop in pairs(stops) do
         stop()
       end
     end
@@ -294,7 +297,7 @@ function M.setup()
         return
       end
       for _, view in ipairs(lib.views) do
-        if view.files and view.adapter then
+        if view.files and view.adapter and not view._nrev_db_watched then
           marks.counts(view)
         end
       end

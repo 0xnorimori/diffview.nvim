@@ -467,6 +467,41 @@ describe("diffview.clubmate", function()
     end)
   end)
 
+  nrev_it("shows a resolve and a reviewed mark made outside nvim while the review is open", function()
+    clubmate.close(tab)
+    require("nrev").setup({ bin = nrev_bin })
+    nrev(
+      repo,
+      "add",
+      "--file", "a.go",
+      "--line-start", "1",
+      "--line-end", "1",
+      "--side", "new",
+      "--rev", "WORKING",
+      "--line-text", "package a",
+      "--type", "note",
+      "--text", "first"
+    )
+
+    capture(function(sent)
+      clubmate.subscribe(7)
+      open_review()
+      wait_for(function()
+        return was_sent(sent, "reviewed_restored", nil, tab)
+      end)
+      eq(1, entry("a.go").comments)
+      eq(false, entry("a_test.go").reviewed)
+
+      nrev(repo, "resolve", "1")
+      nrev(repo, "reviewed", "set", "a_test.go", "--content-id", git(repo, "hash-object", "a_test.go"))
+      wait_for(function()
+        return entry("a.go").comments == 0 and entry("a_test.go").reviewed
+      end)
+      local panel = view().panel
+      eq(0, require("diffview.review.panel").open_comments(panel))
+    end)
+  end)
+
   nrev_it("restores persisted marks of files shown again after an exclude is lifted", function()
     clubmate.close(tab)
     require("nrev").setup({ bin = nrev_bin })

@@ -80,8 +80,8 @@ describe("diffview.clubmate review profile", function()
     end)
     local layout = view().cur_layout
     local left, right = bar_text(layout.a.id), bar_text(layout.b.id)
-    eq("Before turn 3 checkpoint " .. cp:sub(1, 7) .. " %<a.go", vim.trim(left))
-    eq("Working tree editable %<a.go", vim.trim(right))
+    eq("Before turn 3  checkpoint " .. cp:sub(1, 7) .. "  %<a.go", vim.trim(left))
+    eq("Working tree  editable  %<a.go", vim.trim(right))
     eq("Before turn 3", clubmate.info(tab).labels.left)
   end)
 
@@ -96,8 +96,8 @@ describe("diffview.clubmate review profile", function()
       return opened(view(), "a.go")
     end)
     local layout = view().cur_layout
-    eq("main merge-base " .. base:sub(1, 7) .. " %<a.go", vim.trim(bar_text(layout.a.id)))
-    eq("feat read-only %<a.go", vim.trim(bar_text(layout.b.id)))
+    eq("main  merge-base " .. base:sub(1, 7) .. "  %<a.go", vim.trim(bar_text(layout.a.id)))
+    eq("feat  read-only  %<a.go", vim.trim(bar_text(layout.b.id)))
   end)
 
   local function select(path)
@@ -142,10 +142,21 @@ describe("diffview.clubmate review profile", function()
     eq("New file — nothing before turn 3", message(left))
     assert.is_truthy(vim.wo[left].fillchars:find("diff:╱", 1, true))
     eq(vim.fn.getwininfo(right)[1].textoff, vim.fn.getwininfo(left)[1].textoff)
+    local column = vim.api.nvim_eval_statusline(vim.wo[left].statuscolumn, { winid = left, use_statuscol_lnum = 1 })
+    eq("", vim.trim(column.str))
+    local info = vim.fn.getwininfo(left)[1]
+    local row = string.rep("╱", info.width - info.textoff)
+    local ns = vim.api.nvim_create_namespace("diffview_fill")
+    local hatch = vim.api.nvim_buf_get_extmarks(vim.api.nvim_win_get_buf(left), ns, 0, -1, { details = true })[1][4]
+    eq(row, hatch.virt_text[1][1])
+    eq(info.height - 1, #hatch.virt_lines)
+    eq(row, hatch.virt_lines[1][1][1])
     assert.is_truthy(vim.wo[left].winhl:find("DiffDelete:DiffviewDiffDeleteDim", 1, true))
     eq({ "DiffAdd", "DiffAdd", "DiffAdd" }, diff_hl(right))
-    eq("Before turn 3 did not exist %<new.txt", vim.trim(bar_text(left)))
-    eq("Working tree new file · 3 lines %<new.txt", vim.trim(bar_text(right)))
+    eq("Before turn 3  did not exist  %<new.txt", vim.trim(bar_text(left)))
+    eq("Working tree  new file · 3 lines  %<new.txt", vim.trim(bar_text(right)))
+    assert.is_truthy(vim.wo[right].winbar:find("%#DiffviewWinBarTagAdded# new file · 3 lines %#", 1, true))
+    eq("DiffviewReviewChipNew", vim.api.nvim_get_hl(0, { name = "DiffviewWinBarTagAdded" }).link)
   end)
 
   it("centres the new file message in the hatching and drops it for a modified file", function()
@@ -162,7 +173,9 @@ describe("diffview.clubmate review profile", function()
     local conf = vim.api.nvim_win_get_config(float)
     eq({ "win", left, 1 + 1, info.textoff + math.floor((60 - info.textoff - width) / 2), false },
       { conf.relative, conf.win, conf.row, conf.col, conf.focusable })
-    eq(0, #vim.api.nvim_buf_get_extmarks(vim.api.nvim_win_get_buf(left), -1, 0, -1, {}))
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(vim.api.nvim_win_get_buf(left), -1, 0, -1, { details = true })) do
+      eq(nil, (m[4].virt_text or { { "" } })[1][1]:find("New file", 1, true))
+    end
 
     select("a.go")
     eq(nil, fill.float(left))
@@ -188,7 +201,7 @@ describe("diffview.clubmate review profile", function()
     local left, right = layout.a.id, layout.b.id
     eq("Deleted in the working tree", message(right))
     eq({ "DiffAdd", "DiffAdd" }, diff_hl(left))
-    eq("Working tree deleted %<a.go", vim.trim(bar_text(right)))
+    eq("Working tree  deleted  %<a.go", vim.trim(bar_text(right)))
   end)
 
   it("keeps the winbar of a plain diffview on the filler side", function()
@@ -234,6 +247,7 @@ describe("diffview.clubmate review profile", function()
   end
 
   it("set_layout inline shows one pane with removed above added", function()
+    local columns = vim.o.columns
     clubmate.set_layout("inline", tab)
     wait_for(function()
       local l = view().cur_layout
@@ -254,13 +268,19 @@ describe("diffview.clubmate review profile", function()
     eq({ { 1, true, "func A() {}", "DiffDelete" } }, removed)
     eq({ { 1, "DiffAdd" }, { 2, "DiffAdd" } }, added)
     eq(false, vim.wo[win].diff)
-    eq("%<a.go inline HEAD → Working tree", vim.trim(bar_text(win)))
+    eq("%<a.go  inline  HEAD → Working tree", vim.trim(bar_text(win)))
 
     clubmate.set_layout("split", tab)
     wait_for(function()
       return #view().cur_layout.windows == 2
     end)
-    eq({}, inline_marks(view().cur_layout.b.id))
+    vim.o.columns = 200
+    vim.wait(100)
+    local layout = view().cur_layout
+    eq({}, inline_marks(layout.b.id))
+    local a, b = vim.api.nvim_win_get_width(layout.a.id), vim.api.nvim_win_get_width(layout.b.id)
+    vim.o.columns = columns
+    assert.is_true(math.abs(a - b) <= 1, ("pane widths %d and %d"):format(a, b))
   end)
 
   it("keeps inline for files that open later and for deleted files", function()

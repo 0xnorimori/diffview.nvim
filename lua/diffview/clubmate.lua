@@ -234,7 +234,7 @@ end
 local function winbar(label, path, tag, tone)
   local parts = { "%#DiffviewWinBarLabel# ", esc(label), " " }
   if tag then
-    vim.list_extend(parts, { "%#" .. (tag_hls[tone] or "DiffviewWinBarTag") .. "#", esc(tag), " " })
+    vim.list_extend(parts, { "%#" .. (tag_hls[tone] or "DiffviewWinBarTag") .. "# ", esc(tag), " %#DiffviewWinBarPath# " })
   end
   vim.list_extend(parts, { "%#DiffviewWinBarPath#%<", esc(path) })
   return table.concat(parts)
@@ -244,8 +244,8 @@ local profile = { number = true, relativenumber = false, cursorline = true, curs
 
 local function inline_winbar(state, path)
   return table.concat({
-    "%#DiffviewWinBarPath# %<", esc(path), " %#DiffviewWinBarTag#inline ",
-    "%#DiffviewWinBarLabel#", esc(state.labels.left), " → ", esc(state.labels.right),
+    "%#DiffviewWinBarLabel# %<", esc(path), " %#DiffviewWinBarTag# inline %#DiffviewWinBarPath# ",
+    esc(state.labels.left), " → ", esc(state.labels.right),
   })
 end
 
@@ -269,6 +269,7 @@ local function decorate(view, state)
       vim.wo[win.id].winbar = winbar(label, path, side_tag(view, state, symbol, win))
     end
   end
+  fill.cover(view)
 end
 
 local function layout_class(view, state)
@@ -395,6 +396,19 @@ local group = api.nvim_create_augroup("diffview_clubmate", { clear = true })
 api.nvim_create_autocmd("TabEnter", {
   group = group,
   callback = apply_tabline,
+})
+
+api.nvim_create_autocmd("VimResized", {
+  group = group,
+  callback = function()
+    for tab, state in pairs(reviews) do
+      if state.layout ~= "inline" and api.nvim_tabpage_is_valid(tab) then
+        api.nvim_win_call(api.nvim_tabpage_get_win(tab), function()
+          vim.cmd("horizontal wincmd =")
+        end)
+      end
+    end
+  end,
 })
 
 api.nvim_create_autocmd("User", {

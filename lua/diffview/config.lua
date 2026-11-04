@@ -88,6 +88,7 @@ M.defaults = {
       generated = { hidden = true, extend = {} },
       reviewed = { hidden = false },
     },
+    checkbox = { on = "☑", off = "☐" },
   },
   file_history_panel = {
     log_options = {

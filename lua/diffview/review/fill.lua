@@ -9,6 +9,7 @@ M.FILLER = "╱"
 local ns = api.nvim_create_namespace("diffview_fill")
 local buffers = setmetatable({}, { __mode = "k" })
 local floats = {}
+local columns = {}
 local group
 
 local function short(rev)
@@ -78,6 +79,39 @@ local function place(id)
   })
 end
 
+local function hatch(id)
+  local buf = columns[id] and columns[id].buf
+  if not (buf and api.nvim_buf_is_valid(buf) and api.nvim_win_is_valid(id) and api.nvim_win_get_buf(id) == buf) then
+    return
+  end
+  local info = vim.fn.getwininfo(id)[1]
+  local line = { { string.rep(M.FILLER, math.max(info.width - info.textoff, 1)), "DiffviewDiffDelete" } }
+  local rows = {}
+  for _ = 2, info.height do
+    rows[#rows + 1] = line
+  end
+  api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+  api.nvim_buf_set_extmark(buf, ns, 0, 0, {
+    virt_text = line,
+    virt_text_pos = "overlay",
+    virt_lines = #rows > 0 and rows or nil,
+  })
+end
+
+local function restore_column(id)
+  local saved = columns[id]
+  columns[id] = nil
+  if saved and api.nvim_win_is_valid(id) then
+    vim.wo[id].statuscolumn = saved.statuscolumn
+  end
+end
+
+local function blank_column(id, buf, width)
+  columns[id] = columns[id] or { statuscolumn = vim.wo[id].statuscolumn }
+  columns[id].buf = buf
+  vim.wo[id].statuscolumn = string.rep(" ", width)
+end
+
 local pending = false
 
 local function place_all()
@@ -89,6 +123,9 @@ local function place_all()
     pending = false
     for id in pairs(floats) do
       place(id)
+    end
+    for id in pairs(columns) do
+      hatch(id)
     end
   end)
 end
@@ -106,6 +143,7 @@ local function watch()
     group = group,
     callback = function(ev)
       local id = tonumber(ev.match)
+      columns[id] = nil
       if floats[id] then
         vim.schedule(function()
           close_float(id)
@@ -119,6 +157,11 @@ local function watch()
       for id, f in pairs(floats) do
         if not api.nvim_win_is_valid(id) or api.nvim_win_get_buf(id) ~= f.anchor then
           close_float(id)
+        end
+      end
+      for id, c in pairs(columns) do
+        if not api.nvim_win_is_valid(id) or api.nvim_win_get_buf(id) ~= c.buf then
+          restore_column(id)
         end
       end
     end,
@@ -176,6 +219,7 @@ function M.show(win, text, diff)
   end
   api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   if diff ~= false then
+    hatch(win.id)
     return float(win, buf, text)
   end
   close_float(win.id)
@@ -198,10 +242,29 @@ function M.apply(view)
         M.show(win, M.message(view, win.file.symbol))
       else
         close_float(win.id)
+        restore_column(win.id)
       end
       api.nvim_win_call(win.id, function()
         vim.opt_local.fillchars:append({ diff = M.FILLER })
       end)
+    end
+  end
+end
+
+---@param view DiffView
+function M.cover(view)
+  local layout = view.cur_layout
+  local wins = layout and layout.windows or {}
+  if #wins ~= 2 then
+    return
+  end
+  for i, win in ipairs(wins) do
+    local partner = wins[3 - i]
+    if win:is_valid() and partner:is_valid() and win.file and win.file.nulled then
+      watch()
+      vim.wo[win.id].number = true
+      blank_column(win.id, api.nvim_win_get_buf(win.id), vim.fn.getwininfo(partner.id)[1].textoff)
+      hatch(win.id)
     end
   end
 end

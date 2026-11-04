@@ -217,7 +217,8 @@ local function checkbox(l, panel, name, label)
   local toggle = function()
     panel:toggle_filter(name)
   end
-  l:add(on and "☑" or "☐", on and "DiffviewReviewCheckOn" or "DiffviewReviewCheckOff", toggle)
+  local glyphs = require("diffview.config").get_config().file_panel.checkbox
+  l:add(on and glyphs.on or glyphs.off, on and "DiffviewReviewCheckOn" or "DiffviewReviewCheckOff", toggle)
   l:add(" " .. label, on and "DiffviewReviewText" or "DiffviewReviewMuted", toggle)
 end
 

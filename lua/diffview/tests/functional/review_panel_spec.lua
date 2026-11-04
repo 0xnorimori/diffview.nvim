@@ -154,6 +154,12 @@ describe("diffview file panel review", function()
     assert.truthy(header():find("0 / 2 reviewed", 1, true))
   end)
 
+  it("draws the checkbox glyphs from the config", function()
+    require("diffview").setup({ use_icons = false, file_panel = { checkbox = { on = "■", off = "□" } } })
+    open()
+    assert.truthy(header():find("Show ■ code □ tests 2 □ generated 1", 1, true))
+  end)
+
   it("keeps the count and the folder when reviewed files are hidden and offers to show them", function()
     vim.fn.mkdir(repo .. "/d", "p")
     vim.fn.writefile({ "package d" }, repo .. "/d/x.go")

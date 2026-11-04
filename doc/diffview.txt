@@ -676,6 +676,14 @@ file_panel.filters                              *diffview-config-file_panel.filt
             spec/**   diffview-test
 <
 
+file_panel.checkbox                            *diffview-config-file_panel.checkbox*
+        Type: `table`
+        Default: >lua
+            checkbox = { on = "☑", off = "☐" }
+<
+        The glyphs of the review panel's filter checkboxes. A terminal with
+        Nerd Font symbols can use `{ on = "󰄲", off = "󰄱" }`.
+
 log_options                                     *diffview-config-log_options*
         Type: `table`, Default: (see defaults)
 
@@ -1821,7 +1829,8 @@ set_layout({layout}, {tab})                  *diffview-clubmate.set_layout()*
         opens the previous or next file, on `☰ Review` the panel. The panel
         (`<leader>b`, |diffview-clubmate.set_panel()|) then opens as a drawer
         floating over the left edge; `<Esc>` in it closes it. Back to
-        `"split"` the panel returns if it was shown before.
+        `"split"` the panel returns if it was shown before. Its winbar reads
+        the path, an `inline` chip and `<left label> → <right label>`.
 
         The inline pane follows edits: a moment after the buffer changes the
         added and removed lines are drawn again. The removed lines above
@@ -1845,6 +1854,8 @@ mode, so `review.db-wal` counts): an `nrev add`, `resolve` or `delete` run
 outside Neovim, by an agent say, recounts the panel, redraws the comment
 lines of the shown buffers and fires `User NrevCommentsChanged`, the public
 event for "nrev comments changed" (the `comments` event above follows it).
+The view also re-reads the reviewed marks, so an `nrev reviewed set` or
+`unset` from outside shows at once (`reviewed_restored` follows it).
 A view with the working tree on one side also watches the worktree: a file of
 the view changed outside Neovim is reloaded (`:checktime`) and the view
 refreshes, so a reviewed file turns `●` at once. The worktree watch is
@@ -1855,7 +1866,11 @@ Review tabs opened by the host use a review profile: 'showtabline' is 0 while
 one is current, the diff windows show absolute numbers with only the cursor
 line number accented, and each winbar reads label, tag, path, where only the
 path truncates. Tags: `checkpoint <sha>`, `merge-base <sha>`, `editable`,
-`read-only`, `new file · N lines`, `did not exist` and `deleted`.
+`read-only`, `new file · N lines`, `did not exist` and `deleted`; each is a
+chip on a background (`DiffviewWinBarTag` links to `DiffviewReviewChip`,
+`DiffviewWinBarTagAdded` to `DiffviewReviewChipNew`, `DiffviewWinBarTagDeleted`
+to `DiffviewReviewChipDeleted`). When Neovim is resized the split panes of
+every review tab are made equal again (the file panel keeps its width).
 
 REVIEW PANEL                                    *diffview-review-panel*
 
@@ -1914,7 +1929,9 @@ reads "New file — nothing before <left label>" and every line on the right is
 added. A deleted file mirrors it with "Deleted in <right label>". The message
 floats over the hatching in `DiffviewFillMessage`, centred across the pane and
 in the hatched rows that are visible; it follows resizes and goes away when the
-pane shows a file again or the view closes. The inline layout has no hatching,
+pane shows a file again or the view closes. In a review tab the hatching
+covers the whole pane, below the partner's last line too, and the filler
+pane's number column stays blank. The inline layout has no hatching,
 so a deleted file there keeps the message on its first line, below the removed
 lines.
 

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -99,12 +100,28 @@ func (s *Store) migrate() error {
 	if v >= schemaVersion {
 		return nil
 	}
-	tx, err := s.db.Begin()
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			conn.ExecContext(ctx, "ROLLBACK")
+		}
+	}()
+	if err := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&v); err != nil {
+		return err
+	}
+	if v >= schemaVersion {
+		return nil
+	}
+	if _, err := conn.ExecContext(ctx, `
 CREATE TABLE IF NOT EXISTS comments (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   file        TEXT NOT NULL,
@@ -135,7 +152,11 @@ PRAGMA user_version = 2;
 `); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (s *Store) Add(p AddParams) (int64, error) {

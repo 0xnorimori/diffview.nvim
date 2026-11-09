@@ -159,6 +159,21 @@ describe("diffview file panel review", function()
     end)
   end)
 
+  it("moves between the panel parts with <C-w>j and <C-w>k", function()
+    open()
+    local p = panel()
+    vim.api.nvim_set_current_win(p.winid)
+    local function press(keys)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "x", false)
+      vim.wait(50)
+      return vim.api.nvim_get_current_win()
+    end
+    eq(
+      { p.footer_win, p.footer_win, p.winid, p.header_win, p.header_win, p.winid },
+      { press("<C-w>j"), press("<C-w>j"), press("<C-w>k"), press("<C-w>k"), press("<C-w>k"), press("<C-w>j") }
+    )
+  end)
+
   it("toggles a filter from its checkbox", function()
     open()
     eq(true, click(panel().header_win, panel().header_buf, "☐ tests 2"))

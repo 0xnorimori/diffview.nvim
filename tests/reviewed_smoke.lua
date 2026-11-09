@@ -38,10 +38,10 @@ for _, file in view.files:iter() do
 end
 vim.api.nvim_exec_autocmds("User", { pattern = "DiffviewReviewedToggled" })
 
-local rev = view.left.commit or view.adapter:head_rev().commit
+local sha = vim.trim(vim.fn.system({ "git", "-C", tmp, "hash-object", "src/f.txt" }))
 local written = vim.wait(5000, function()
-  local out = vim.system({ root .. "/bin/nrev", "reviewed", "list", "--rev-range", rev }, { cwd = tmp, text = true }):wait()
-  return (out.stdout or ""):find("src/f.txt", 1, true) ~= nil
+  local out = vim.system({ root .. "/bin/nrev", "reviewed", "list" }, { cwd = tmp, text = true }):wait()
+  return (out.stdout or ""):find("src/f.txt\t" .. sha, 1, true) ~= nil
 end, 100)
 assert(written, "reviewed row not written to db")
 

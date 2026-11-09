@@ -1,6 +1,8 @@
 package store
 
 import (
+	"fmt"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -56,5 +58,36 @@ func TestPruneAndAutoGC(t *testing.T) {
 	got, _ := s.ListReviewed()
 	if !reflect.DeepEqual(got, []Reviewed{{"a.go", "fresh"}}) {
 		t.Fatalf("only the 61d old row must be pruned: %v", got)
+	}
+}
+
+func TestConcurrentFirstOpenKeepsMarks(t *testing.T) {
+	for range 20 {
+		path := filepath.Join(t.TempDir(), "review.db")
+		errs := make(chan error, 8)
+		for i := range 8 {
+			go func() {
+				s, err := Open(path)
+				if err == nil {
+					err = s.SetReviewed(fmt.Sprintf("f%d", i), "x", true)
+					s.Close()
+				}
+				errs <- err
+			}()
+		}
+		for range 8 {
+			if err := <-errs; err != nil {
+				t.Fatal(err)
+			}
+		}
+		s, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.ListReviewed()
+		s.Close()
+		if err != nil || len(got) != 8 {
+			t.Fatalf("marks after concurrent first open: %v %v", err, got)
+		}
 	}
 }

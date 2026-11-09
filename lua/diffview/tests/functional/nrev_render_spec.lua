@@ -124,6 +124,32 @@ describe("nrev comments in a review", function()
   end)
 end)
 
+describe("nrev on FocusGained", function()
+  it("asks nrev only about file buffers", function()
+    require("nrev").setup({ bin = helpers.nrev_bin })
+    local file = vim.fn.tempname()
+    vim.fn.writefile({ "x" }, file)
+    vim.cmd("tabnew " .. vim.fn.fnameescape(file))
+    file = vim.api.nvim_buf_get_name(0)
+    for _, name in ipairs({ "neo-tree filesystem [1]", "[Pager]" }) do
+      local buf = vim.api.nvim_create_buf(false, true)
+      vim.api.nvim_buf_set_name(buf, name)
+      vim.cmd("split")
+      vim.api.nvim_win_set_buf(0, buf)
+    end
+    local nrev_mod = require("nrev")
+    local run = nrev_mod.run
+    local asked = {}
+    nrev_mod.run = function(args)
+      table.insert(asked, args[#args])
+    end
+    vim.api.nvim_exec_autocmds("FocusGained", {})
+    nrev_mod.run = run
+    vim.cmd("tabclose")
+    eq({ file }, asked)
+  end)
+end)
+
 describe("nrev.diffview.map_line", function()
   it("maps a row to the same diff row on the other side", function()
     local a = "1\n2\n3\n4\n5\n6\n"

@@ -121,7 +121,7 @@ function M.buf_info(bufnr)
     end
     return nil
   end
-  if name:match("^%w+://") then
+  if name:match("^%w+://") or vim.bo[bufnr].buftype ~= "" or vim.fn.filereadable(name) == 0 then
     return nil
   end
   return { file = name, cwd = vim.fs.dirname(name), side = "new", rev = "WORKING" }

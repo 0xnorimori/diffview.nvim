@@ -71,7 +71,7 @@ local function comments_changed()
   local nrev = require("nrev")
   local seen = {}
   for _, view in ipairs(lib.views) do
-    if view.files and view.adapter and view._nrev_db_watched then
+    if view.files and view.adapter and view._nrev_db_watched and view._nrev_listed then
       marks.refresh(view)
     end
     local layout = view.cur_layout
@@ -118,6 +118,7 @@ local function watch(view)
   end
   view._nrev_watched = true
   view.emitter:on("files_updated", function()
+    view._nrev_listed = true
     if view_is_open(view) then
       marks.refresh(view)
     end
@@ -163,6 +164,7 @@ function M.restore(view)
     return
   end
   watch(view)
+  view._nrev_listed = true
   marks.refresh(view)
 end
 

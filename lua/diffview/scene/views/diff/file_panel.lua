@@ -10,6 +10,10 @@ local api = vim.api
 local chrome_ns = api.nvim_create_namespace("diffview_review_panel")
 local chrome_group = api.nvim_create_augroup("diffview_review_panel", { clear = true })
 local CHROME_KEYS = { "q", "<leader>b", "<leader>e", "zc", "zt", "zg", "zr", "gS", "]f", "[f" }
+local WIN_KEYS = {
+  j = { "<C-w>j", "<C-w><C-j>", "<C-w><Down>" },
+  k = { "<C-w>k", "<C-w><C-k>", "<C-w><Up>" },
+}
 local M = {}
 
 ---@class TreeOptions
@@ -92,8 +96,15 @@ function FilePanel:init(adapter, files, path_args, rev_pretty_name)
       local cur = api.nvim_get_current_win()
       if cur == self.winid then
         vim.wo[self.winid].cursorline = ev.event == "WinEnter"
-      elseif ev.event == "WinEnter" and (cur == self.header_win or cur == self.footer_win) then
-        self:pass_focus(cur, vim.fn.win_getid(vim.fn.winnr("#")))
+      elseif cur == self.header_win or cur == self.footer_win then
+        if ev.event == "WinLeave" then
+          vim.wo[cur].cursorline = false
+          self.chrome_held = nil
+        elseif cur == self.chrome_held then
+          vim.wo[cur].cursorline = true
+        else
+          self:pass_focus(cur, vim.fn.win_getid(vim.fn.winnr("#")))
+        end
       end
     end,
   })
@@ -212,8 +223,30 @@ function FilePanel:chrome_buf(name)
       self:close()
     end
   end, opt)
+  local toward = name == "header" and "j" or "k"
+  local away = name == "header" and "k" or "j"
+  for _, lhs in ipairs(WIN_KEYS[toward]) do
+    vim.keymap.set("n", lhs, function()
+      if self:is_open() then
+        api.nvim_set_current_win(self.winid)
+      end
+    end, opt)
+  end
+  for _, lhs in ipairs(WIN_KEYS[away]) do
+    vim.keymap.set("n", lhs, "<nop>", opt)
+  end
   self[field] = buf
   return buf
+end
+
+---@param name "header"|"footer"
+function FilePanel:enter_chrome(name)
+  local win = self[name .. "_win"]
+  if not valid_win(win) then
+    return
+  end
+  self.chrome_held = win
+  api.nvim_set_current_win(win)
 end
 
 local RULE = "%#DiffviewReviewBorder#%{repeat('─', winwidth(0))}"
@@ -503,6 +536,13 @@ function FilePanel:setup_buffer()
   vim.keymap.set("n", "<LeftRelease>", function()
     self:click()
   end, { silent = true, nowait = true, buffer = self.bufid })
+  for dir, name in pairs({ k = "header", j = "footer" }) do
+    for _, lhs in ipairs(WIN_KEYS[dir]) do
+      vim.keymap.set("n", lhs, function()
+        self:enter_chrome(name)
+      end, { silent = true, nowait = true, buffer = self.bufid })
+    end
+  end
 
   local default_opt = { silent = true, nowait = true, buffer = self.bufid }
   for _, mapping in ipairs(conf.keymaps.file_panel) do

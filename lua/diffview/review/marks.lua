@@ -20,23 +20,39 @@ local function lines(stdout)
   return vim.split(vim.trim(stdout or ""), "\n", { plain = true, trimempty = true })
 end
 
+local hashed = {}
+
+local function stamp(stat, started)
+  if stat.type ~= "file" or stat.mtime.sec >= started then
+    return nil
+  end
+  return table.concat({
+    stat.size, stat.ino, stat.mtime.sec, stat.mtime.nsec, stat.ctime.sec, stat.ctime.nsec,
+  }, ":")
+end
+
 ---@param adapter VCSAdapter
 ---@param files FileEntry[]
 ---@param cb fun(ids: table<FileEntry, string>)
 function M.content_ids(adapter, files, cb)
   local top = adapter.ctx.toplevel
   local ids = {}
-  local locals, objects = {}, {}
+  local locals, objects, stamps = {}, {}, {}
+  local started = os.time()
   for _, file in ipairs(files) do
     local rev = file.revs and file.revs.b
     if rev and rev.type == RevType.LOCAL then
       local stat = vim.uv.fs_lstat(top .. "/" .. file.path)
+      local cached = stat and hashed[top .. "\0" .. file.path]
       if not stat then
         ids[file] = M.DELETED
       elseif stat.type == "directory" then
         ids[file] = M.DIRECTORY
+      elseif cached and cached.stamp == stamp(stat, started) then
+        ids[file] = cached.id
       else
         locals[#locals + 1] = file
+        stamps[file] = stamp(stat, started)
       end
     elseif rev and rev.type == RevType.STAGE then
       objects[#objects + 1] = { file, ":" .. file.path }
@@ -53,12 +69,18 @@ function M.content_ids(adapter, files, cb)
     end
   end
 
+  local function remember(file, id)
+    ids[file] = id
+    local k = top .. "\0" .. file.path
+    hashed[k] = stamps[file] and { stamp = stamps[file], id = id } or nil
+  end
+
   local function hash_each()
     local left = #locals
     for _, file in ipairs(locals) do
       run({ "git", "hash-object", "--", file.path }, top, nil, function(out)
         if out.code == 0 then
-          ids[file] = lines(out.stdout)[1]
+          remember(file, lines(out.stdout)[1])
         end
         left = left - 1
         if left == 0 then
@@ -81,7 +103,7 @@ function M.content_ids(adapter, files, cb)
       end
       for i, sha in ipairs(lines(out.stdout)) do
         if locals[i] then
-          ids[locals[i]] = sha
+          remember(locals[i], sha)
         end
       end
       done()
@@ -225,6 +247,18 @@ local function kept_ids(view, file)
   return kept
 end
 
+local function written(view)
+  return function(out)
+    if out.code == 0 then
+      return
+    end
+    vim.notify("nrev: " .. vim.trim(out.stderr or "") .. " — reviewed mark not saved", vim.log.levels.ERROR)
+    if view_is_open(view) then
+      M.refresh(view)
+    end
+  end
+end
+
 function M.sync(view)
   local nrev = require("nrev")
   local snapshot = view._nrev_synced or {}
@@ -237,14 +271,14 @@ function M.sync(view)
       view._nrev_toggled[k] = { flag = flag, gen = view._nrev_gen, sent = file.content_id ~= nil, id = file.content_id }
       if file.content_id then
         if flag then
-          nrev.run({ "reviewed", "set", file.path, "--content-id", file.content_id }, cwd(view), nil)
+          nrev.run({ "reviewed", "set", file.path, "--content-id", file.content_id }, cwd(view), written(view))
           rows[file.path] = rows[file.path] or {}
           rows[file.path][file.content_id] = true
         else
           local kept = kept_ids(view, file)
           for id in pairs(rows[file.path] or {}) do
             if not kept[id] then
-              nrev.run({ "reviewed", "unset", file.path, "--content-id", id }, cwd(view), nil)
+              nrev.run({ "reviewed", "unset", file.path, "--content-id", id }, cwd(view), written(view))
               rows[file.path][id] = nil
             end
           end

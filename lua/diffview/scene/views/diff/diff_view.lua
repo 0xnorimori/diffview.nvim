@@ -2,7 +2,6 @@ local async = require("diffview.async")
 local lazy = require("diffview.lazy")
 local oop = require("diffview.oop")
 
-local AnnotationStore = lazy.access("diffview.annotations", "AnnotationStore") ---@type AnnotationStore|LazyModule
 local CommitLogPanel = lazy.access("diffview.ui.panels.commit_log_panel", "CommitLogPanel") ---@type CommitLogPanel|LazyModule
 local Diff = lazy.access("diffview.diff", "Diff") ---@type Diff|LazyModule
 local EditToken = lazy.access("diffview.diff", "EditToken") ---@type EditToken|LazyModule
@@ -80,33 +79,12 @@ function DiffView:init(opt)
   self.panel.view = self
 
   self.attached_bufs = {}
-  self.annot_store = AnnotationStore()
-  self.panel.annot_store = self.annot_store
-
-  local output_path = vim.env.DIFFVIEW_OUTPUT
-  if output_path then
-    self.annot_store:import(output_path)
-  end
-
   self.emitter:on("file_open_post", utils.bind(self.file_open_post, self))
   self.valid = true
 end
 
 function DiffView:post_open()
   vim.cmd("redraw")
-
-  local output_path = vim.env.DIFFVIEW_OUTPUT
-  if output_path then
-    local view = self
-    vim.api.nvim_create_autocmd("VimLeavePre", {
-      once = true,
-      callback = function()
-        if not view.annot_exported then
-          view.annot_store:export(output_path)
-        end
-      end,
-    })
-  end
 
   self.commit_log_panel = CommitLogPanel(self.adapter, {
     name = fmt("diffview://%s/log/%d/%s", self.adapter.ctx.dir, self.tabpage, "commit_log"),
@@ -146,7 +124,6 @@ end
 function DiffView:file_open_post(e, new_entry, old_entry)
   fill.apply(self)
   if new_entry.layout:is_nulled() then return end
-  self:apply_annot_extmarks(new_entry)
   if new_entry.kind == "conflicting" then
     local file = new_entry.layout:get_main_win().file
 
@@ -196,53 +173,10 @@ function DiffView:file_open_post(e, new_entry, old_entry)
   end
 end
 
-local annot_ns = api.nvim_create_namespace("diffview_annotations")
-
----@param entry FileEntry
-function DiffView:apply_annot_extmarks(entry)
-  local annots = self.annot_store:get_for_file(entry.path)
-  if #annots == 0 then return end
-
-  local layout = self.cur_layout
-  if not layout or not layout.a or not layout.b then return end
-
-  for _, a in ipairs(annots) do
-    if a.type == "file" then goto continue end
-
-    if a.extmark_bufnr and not api.nvim_buf_is_valid(a.extmark_bufnr) then
-      a.extmark_id = nil
-      a.extmark_bufnr = nil
-    end
-    if a.extmark_id then goto continue end
-
-    local win = (a.side == "a") and layout.a or layout.b
-    if not win or not api.nvim_win_is_valid(win.id) then goto continue end
-
-    local bufnr = api.nvim_win_get_buf(win.id)
-    local line_count = api.nvim_buf_line_count(bufnr)
-    if a.lnum < 1 or a.lnum > line_count then goto continue end
-
-    local short = #a.text > 50 and a.text:sub(1, 47) .. "..." or a.text
-    a.extmark_id = api.nvim_buf_set_extmark(bufnr, annot_ns, a.lnum - 1, 0, {
-      virt_text = { { "  ✎ " .. short, "DiffviewAnnotationText" } },
-      virt_text_pos = "eol",
-    })
-    a.extmark_bufnr = bufnr
-
-    ::continue::
-  end
-end
-
 ---@override
 function DiffView:close()
   if not self.closing:check() then
     self.closing:send()
-
-    local output_path = vim.env.DIFFVIEW_OUTPUT
-    if output_path then
-      self.annot_store:export(output_path)
-      self.annot_exported = true
-    end
 
     if self.watcher then
       self.watcher:stop()

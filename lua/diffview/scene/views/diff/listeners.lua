@@ -4,54 +4,11 @@ local lazy = require("diffview.lazy")
 local EventName = lazy.access("diffview.events", "EventName") ---@type EventName|LazyModule
 local RevType = lazy.access("diffview.vcs.rev", "RevType") ---@type RevType|LazyModule
 local actions = lazy.require("diffview.actions") ---@module "diffview.actions"
-local annotation_input = lazy.require("diffview.ui.annotation_input") ---@module "diffview.ui.annotation_input"
 local utils = lazy.require("diffview.utils") ---@module "diffview.utils"
 local vcs_utils = lazy.require("diffview.vcs.utils") ---@module "diffview.vcs.utils"
 
 local api = vim.api
 local await = async.await
-
-local annot_ns = api.nvim_create_namespace("diffview_annotations")
-
-local function get_annot_side(view)
-  local cur_win = api.nvim_get_current_win()
-  local layout = view.cur_layout
-  if layout and layout.a and layout.b then
-    if cur_win == layout.a.id then return "a" end
-    if cur_win == layout.b.id then return "b" end
-  end
-  return nil
-end
-
-local function get_line_type(side, lnum)
-  local hl_id = vim.fn.diff_hlID(lnum, 1)
-  if hl_id == 0 then return "context" end
-  local name = vim.fn.synIDattr(hl_id, "name")
-  if name == "DiffAdd" or name == "DiffText" then
-    return side == "b" and "add" or "remove"
-  end
-  if name == "DiffDelete" then
-    return side == "a" and "remove" or "add"
-  end
-  if name == "DiffChange" then
-    return side == "b" and "add" or "remove"
-  end
-  return "context"
-end
-
-local function set_annot_extmark(bufnr, lnum, text)
-  local short = #text > 50 and text:sub(1, 47) .. "..." or text
-  return api.nvim_buf_set_extmark(bufnr, annot_ns, lnum - 1, 0, {
-    virt_text = { { "  ✎ " .. short, "DiffviewAnnotationText" } },
-    virt_text_pos = "eol",
-  })
-end
-
-local function clear_annot_extmark(entry)
-  if entry.extmark_id and entry.extmark_bufnr and api.nvim_buf_is_valid(entry.extmark_bufnr) then
-    api.nvim_buf_del_extmark(entry.extmark_bufnr, annot_ns, entry.extmark_id)
-  end
-end
 
 ---@param view DiffView
 return function(view)
@@ -440,77 +397,6 @@ return function(view)
     end,
     toggle_hide_reviewed = function()
       view.panel:toggle_filter("reviewed")
-    end,
-    annotate_line = function()
-      if view.panel:is_focused() then return end
-      local side = get_annot_side(view)
-      if not side then return end
-
-      local file = view.panel.cur_file
-      if not file then return end
-
-      local cur_win = api.nvim_get_current_win()
-      local lnum = api.nvim_win_get_cursor(cur_win)[1]
-      local bufnr = api.nvim_win_get_buf(cur_win)
-      local line_content = (api.nvim_buf_get_lines(bufnr, lnum - 1, lnum, false)[1] or "")
-      local line_type = get_line_type(side, lnum)
-
-      annotation_input.open(nil, function(text)
-        if not text then return end
-        local extmark_id = set_annot_extmark(bufnr, lnum, text)
-        view.annot_store:add({
-          file = file.path,
-          lnum = lnum,
-          side = side,
-          type = line_type,
-          text = text,
-          line_content = line_content,
-          extmark_id = extmark_id,
-          extmark_bufnr = bufnr,
-        })
-        view.panel:render()
-        view.panel:redraw()
-      end)
-    end,
-    annotate_file = function()
-      local file = view:infer_cur_file()
-      if not file then return end
-
-      annotation_input.open({ title = " File Annotation " }, function(text)
-        if not text then return end
-        view.annot_store:add({
-          file = file.path,
-          lnum = 0,
-          side = "file",
-          type = "file",
-          text = text,
-          line_content = "",
-        })
-        view.panel:render()
-        view.panel:redraw()
-      end)
-    end,
-    delete_annotation = function()
-      if view.panel:is_focused() then return end
-      local side = get_annot_side(view)
-      if not side then return end
-
-      local file = view.panel.cur_file
-      if not file then return end
-
-      local lnum = api.nvim_win_get_cursor(api.nvim_get_current_win())[1]
-      local removed = view.annot_store:remove(file.path, lnum, side)
-      if removed then
-        clear_annot_extmark(removed)
-        view.panel:render()
-        view.panel:redraw()
-      else
-        vim.notify("No annotation on this line", vim.log.levels.WARN)
-      end
-    end,
-    toggle_annot_list = function()
-      local annot_list = require("diffview.ui.annotation_list")
-      annot_list.toggle(view)
     end,
   }
 end

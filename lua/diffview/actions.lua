@@ -616,13 +616,10 @@ do
 end
 
 local action_names = {
-  "annotate_file",
-  "annotate_line",
   "close",
   "close_all_folds",
   "close_fold",
   "copy_hash",
-  "delete_annotation",
   "focus_entry",
   "focus_files",
   "listing_style",
@@ -646,7 +643,6 @@ local action_names = {
   "select_next_commit",
   "select_prev_commit",
   "stage_all",
-  "toggle_annot_list",
   "toggle_files",
   "toggle_flatten_dirs",
   "toggle_fold",

@@ -290,6 +290,12 @@ return function(view)
       view.panel:render()
       view.panel:redraw()
     end,
+    toggle_group_dirs = function()
+      view.panel.tree_options.group_dirs = not view.panel.tree_options.group_dirs
+      view.panel:update_components()
+      view.panel:render()
+      view.panel:redraw()
+    end,
     focus_files = function()
       view.panel:focus()
     end,

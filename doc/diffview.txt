@@ -1244,6 +1244,12 @@ toggle_flatten_dirs                             *diffview-actions-toggle_flatten
         Toggle whether or not to flatten empty subdirectories in the file tree
         listing style.
 
+toggle_group_dirs                               *diffview-actions-toggle_group_dirs*
+        Contexts: `file_panel`
+
+        Toggle between one folder per parent directory (`group_dirs`) and
+        the nested folder tree in the tree listing style.
+
 toggle_fold                                     *diffview-actions-toggle_fold*
         Contexts: `file_panel`, `file_history_panel`
 

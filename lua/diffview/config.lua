@@ -215,6 +215,7 @@ M.defaults = {
       { "n", "<C-w>gf",        actions.goto_file_tab,                  { desc = "Open the file in a new tabpage" } },
       { "n", "i",              actions.listing_style,                  { desc = "Toggle between 'list' and 'tree' views" } },
       { "n", "f",              actions.toggle_flatten_dirs,            { desc = "Flatten empty subdirectories in tree listing style" } },
+      { "n", "t",              actions.toggle_group_dirs,              { desc = "Show folders nested or grouped by parent directory" } },
       { "n", "R",              actions.refresh_files,                  { desc = "Update stats and entries in the file list" } },
       { "n", "<leader>e",      actions.focus_files,                    { desc = "Bring focus to the file panel" } },
       { "n", "<leader>b",      actions.toggle_files,                   { desc = "Toggle the file panel" } },
